@@ -12,8 +12,8 @@ param(
 
 # Auto-detect script directory and sketch path
 $SCRIPT_DIR = Split-Path -Parent $MyInvocation.MyCommand.Path
-$SKETCH_NAME = "sketch_dec25b.ino"
-$SKETCH_PATH = Join-Path $SCRIPT_DIR "sketch_dec25b\$SKETCH_NAME"
+$SKETCH_NAME = "ESP32-NINA-GPS.ino"
+$SKETCH_PATH = Join-Path $SCRIPT_DIR $SKETCH_NAME
 
 # Generate unique build path based on sketch location
 $SKETCH_HASH = [System.BitConverter]::ToString([System.Security.Cryptography.MD5]::Create().ComputeHash([System.Text.Encoding]::UTF8.GetBytes($SKETCH_PATH))).Replace("-","")
