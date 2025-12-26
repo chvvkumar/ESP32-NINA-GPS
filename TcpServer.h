@@ -3,5 +3,6 @@
 
 void setupTCP();
 void broadcastData();
+bool hasNewConnections();
 
 #endif

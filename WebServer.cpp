@@ -105,7 +105,16 @@ const char index_html[] PROGMEM = R"rawliteral(
 
     <div class="dashboard">
       <div class="card">
-        <div class="card-title">Position <span id="satsBadge">0 Sats</span></div>
+        <div class="card-title" style="display:flex; justify-content:space-between; align-items:center;">
+          <span>Position</span>
+          <div style="display:flex; gap:8px; align-items:center;">
+            <span id="satsBadge">0 Sats</span>
+            <div class="status-badge" style="margin-left:8px;">
+                <div id="statusDot" class="status-dot"></div>
+                <span id="fixStatus">Initializing...</span>
+            </div>
+          </div>
+        </div>
         <div class="coord-grid">
           <div class="coord-item">
             <span class="coord-label">LATITUDE</span>
@@ -164,13 +173,7 @@ const char index_html[] PROGMEM = R"rawliteral(
       </div>
 
       <div class="card">
-        <div class="card-title" style="display: flex; justify-content: space-between; align-items: center;">
-            Signal Quality
-            <div class="status-badge">
-                <div id="statusDot" class="status-dot"></div>
-                <span id="fixStatus">Initializing...</span>
-            </div>
-        </div>
+        <div class="card-title">Signal Quality</div>
         <div class="stats-grid">
           <div class="stat-box">
             <span class="stat-val" id="pdop">--</span>

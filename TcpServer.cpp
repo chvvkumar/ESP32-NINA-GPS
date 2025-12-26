@@ -12,6 +12,8 @@ struct ClientContext {
   bool isGpsd = false; 
 };
 std::vector<ClientContext> clients;
+SemaphoreHandle_t clientsMutex = NULL;
+volatile bool newClientConnected = false;
 
 // --- Helper Functions Local to this file ---
 String getChecksum(String content) {
@@ -36,15 +38,18 @@ String toNMEA(double deg, bool isLon) {
 static void handleClientData(void* arg, AsyncClient* client, void* data, size_t len) {
   String cmd = String((char*)data).substring(0, len);
   if (cmd.indexOf("?WATCH") != -1) {
-    for (auto& ctx : clients) {
-      if (ctx.client == client) {
-        ctx.isGpsd = true;
-        String ack = "{\"class\":\"VERSION\",\"release\":\"3.23\",\"rev\":\"ESP32\",\"proto_major\":3,\"proto_minor\":14}\\n";
-        ack += "{\"class\":\"DEVICES\",\"devices\":[{\"class\":\"DEVICE\",\"path\":\"/dev/i2c\",\"driver\":\"u-blox\",\"activated\":\"" + gpsData.dateStr + "T" + gpsData.timeStr + "Z\"}]}\\n";
-        ack += "{\"class\":\"WATCH\",\"enable\":true,\"json\":true}\\n";
-        client->write(ack.c_str());
-        break;
+    if (xSemaphoreTake(clientsMutex, portMAX_DELAY)) {
+      for (auto& ctx : clients) {
+        if (ctx.client == client) {
+          ctx.isGpsd = true;
+          String ack = "{\"class\":\"VERSION\",\"release\":\"3.23\",\"rev\":\"ESP32\",\"proto_major\":3,\"proto_minor\":14}\\n";
+          ack += "{\"class\":\"DEVICES\",\"devices\":[{\"class\":\"DEVICE\",\"path\":\"/dev/i2c\",\"driver\":\"u-blox\",\"activated\":\"" + gpsData.dateStr + "T" + gpsData.timeStr + "Z\"}]}\\n";
+          ack += "{\"class\":\"WATCH\",\"enable\":true,\"json\":true}\\n";
+          client->write(ack.c_str());
+          break;
+        }
       }
+      xSemaphoreGive(clientsMutex);
     }
   }
 }
@@ -53,26 +58,43 @@ static void handleNewClient(void* arg, AsyncClient* client) {
   ClientContext ctx;
   ctx.client = client;
   ctx.isGpsd = false; 
-  clients.push_back(ctx);
+  
+  if (xSemaphoreTake(clientsMutex, portMAX_DELAY)) {
+    clients.push_back(ctx);
+    newClientConnected = true;
+    xSemaphoreGive(clientsMutex);
+  }
 
   client->onDisconnect([](void* arg, AsyncClient* c) {
-    for (auto it = clients.begin(); it != clients.end(); ++it) {
-      if (it->client == c) {
-        clients.erase(it);
-        break;
+    if (xSemaphoreTake(clientsMutex, portMAX_DELAY)) {
+      for (auto it = clients.begin(); it != clients.end(); ++it) {
+        if (it->client == c) {
+          clients.erase(it);
+          break;
+        }
       }
+      xSemaphoreGive(clientsMutex);
     }
   }, NULL);
   client->onData(&handleClientData, NULL);
 }
 
 void setupTCP() {
+  clientsMutex = xSemaphoreCreateMutex();
   tcpServer.onClient(&handleNewClient, NULL);
   tcpServer.begin();
 }
 
+bool hasNewConnections() {
+  if (newClientConnected) {
+    newClientConnected = false; 
+    return true;
+  }
+  return false;
+}
+
 void broadcastData() {
-  if (clients.empty()) return; 
+  // Construct strings first to minimize lock time, relying on extern gpsData
   
   // --- PREPARE NMEA ---
   String rmc = "GPRMC,";
@@ -129,15 +151,18 @@ void broadcastData() {
     tpv += "}\n";
   }
 
-  for (auto& ctx : clients) {
-    if (ctx.client->connected() && ctx.client->canSend()) {
-      if (ctx.isGpsd && gpsData.hasFix) {
-        ctx.client->write(tpv.c_str());
-      } else {
-        ctx.client->write(rmcFull.c_str());
-        ctx.client->write(ggaFull.c_str());
-        ctx.client->write(gsaFull.c_str());
+  if (xSemaphoreTake(clientsMutex, portMAX_DELAY)) {
+    for (auto& ctx : clients) {
+      if (ctx.client->connected() && ctx.client->canSend()) {
+        if (ctx.isGpsd && gpsData.hasFix) {
+          ctx.client->write(tpv.c_str());
+        } else {
+          ctx.client->write(rmcFull.c_str());
+          ctx.client->write(ggaFull.c_str());
+          ctx.client->write(gsaFull.c_str());
+        }
       }
     }
+    xSemaphoreGive(clientsMutex);
   }
 }

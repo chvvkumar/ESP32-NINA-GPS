@@ -59,11 +59,22 @@ void setup() {
 }
 
 void loop() {
+  bool shouldBroadcast = false;
+
   // GPS Polling Loop
   if (gpsData.gpsInterval > 0 && (millis() - gpsData.lastGPSPoll >= gpsData.gpsInterval)) {
     gpsData.lastGPSPoll = millis();
     pollGPS();
-    broadcastData(); 
+    shouldBroadcast = true;
+  }
+  
+  // Check for new TCP clients to send immediate data
+  if (hasNewConnections()) {
+    shouldBroadcast = true;
+  }
+
+  if (shouldBroadcast) {
+    broadcastData();
   }
   
   // Print Station IP once connected
