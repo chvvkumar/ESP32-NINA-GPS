@@ -8,7 +8,7 @@
 #include "WebServer.h"
 #include "Config.h"
 #include "Context.h"
-#include "LedControl.h" // For Ticker/LED control
+#include "LedControl.h" 
 
 AsyncWebServer webServer(WEB_PORT);
 
@@ -18,188 +18,379 @@ const char index_html[] PROGMEM = R"rawliteral(
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>GPS Node Status</title>
+  <title>ESP32 GPS Dashboard</title>
   <style>
-    :root { --md-sys-color-background: #1a1a1a; --md-sys-color-surface: #2a2a2a; --md-sys-color-secondary: #90caf9; }
+    :root {
+      --bg-color: #121212;
+      --card-bg: #1e1e1e;
+      --accent: #00e5ff;
+      --text-main: #ffffff;
+      --text-muted: #aaaaaa;
+      --success: #00c853;
+      --warning: #ffd600;
+      --danger: #d50000;
+    }
     * { margin: 0; padding: 0; box-sizing: border-box; }
-    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: var(--md-sys-color-background); color: #fff; padding: 20px; }
-    .container { max-width: 900px; margin: 0 auto; }
-    h1 { text-align: center; margin-bottom: 20px; font-size: 2em; }
-    h3 { margin-bottom: 12px; }
-    .md-card { background: var(--md-sys-color-surface); border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.3); padding: 20px; margin-bottom: 16px; }
-    .md-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; margin-top: 12px; }
-    .md-item { background: #232323; border-radius: 8px; padding: 12px; text-align: center; box-shadow: 0 1px 4px rgba(0,0,0,0.2); }
-    .md-label { font-size: 0.9em; color: #bbb; margin-bottom: 4px; display: block; }
-    .md-value { font-size: 1.3em; font-weight: 500; color: var(--md-sys-color-secondary); }
-    .md-select, .md-input { width: 100%; background: #232323; color: #fff; border: none; border-radius: 8px; padding: 10px; font-size: 1em; margin-top: 8px; }
-    .md-btn { width: 100%; background: var(--md-sys-color-secondary); color: #000; border: none; border-radius: 8px; padding: 12px; font-size: 1em; margin-top: 12px; cursor: pointer; font-weight: bold; }
-    .md-btn:hover { background: #64b5f6; }
-    .md-btn:disabled { background: #555; cursor: not-allowed; }
-    .wifi-list { max-height: 200px; overflow-y: auto; background: #232323; border-radius: 8px; margin-top: 12px; }
-    .wifi-item { padding: 10px; border-bottom: 1px solid #333; cursor: pointer; display: flex; justify-content: space-between; }
-    .wifi-item:hover { background: #333; }
-    .wifi-rssi { font-size: 0.8em; color: #bbb; }
-    label { display: block; margin-bottom: 4px; color: #bbb; }
-    .copy-btn { background: #404040; color: #90caf9; border: none; border-radius: 6px; padding: 6px 12px; font-size: 0.85em; cursor: pointer; margin-top: 8px; transition: background 0.2s; }
-    .copy-btn:hover { background: #505050; }
-    .copy-btn.copied { background: #2e7d32; color: #fff; }
-    .md-item-with-copy { display: flex; flex-direction: column; align-items: center; }
-    @media (max-width: 600px) { 
-      .container { max-width: 100%; padding: 8px; } 
-      .md-grid { grid-template-columns: repeat(2, 1fr); gap: 8px; }
-      .md-card { padding: 12px; }
-      .md-value { font-size: 1.15em; }
+    body { font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background: var(--bg-color); color: var(--text-main); padding: 1rem; }
+    
+    /* Layout */
+    .container { max-width: 1200px; margin: 0 auto; }
+    .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem; padding: 0 0.5rem; }
+    .status-badge { display: flex; align-items: center; gap: 8px; background: rgba(255,255,255,0.1); padding: 6px 12px; border-radius: 20px; font-size: 0.9rem; }
+    .status-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--text-muted); box-shadow: 0 0 8px currentColor; transition: all 0.3s; }
+    
+    /* Grid System */
+    .dashboard { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 1rem; }
+    .card { background: var(--card-bg); border-radius: 16px; padding: 1.5rem; box-shadow: 0 4px 6px rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.05); }
+    .card-title { font-size: 0.85rem; text-transform: uppercase; letter-spacing: 1px; color: var(--text-muted); margin-bottom: 1rem; display: flex; justify-content: space-between; }
+    
+    /* Typography */
+    .big-value { font-size: 2rem; font-weight: 300; letter-spacing: -0.5px; }
+    .unit { font-size: 1rem; color: var(--text-muted); margin-left: 4px; }
+    .mono { font-family: 'Courier New', monospace; }
+    
+    /* Specific Components */
+    .coord-grid { display: grid; gap: 1rem; }
+    .coord-item { position: relative; }
+    .coord-label { display: block; font-size: 0.75rem; color: var(--text-muted); margin-bottom: 4px; }
+    .copy-btn { position: absolute; right: 0; top: 0; background: transparent; border: 1px solid rgba(255,255,255,0.2); color: var(--text-muted); padding: 2px 8px; border-radius: 4px; cursor: pointer; font-size: 0.7rem; transition: all 0.2s; }
+    .copy-btn:hover { border-color: var(--accent); color: var(--accent); }
+    
+    /* Compass & Speed */
+    .nav-row { display: flex; align-items: center; justify-content: space-around; }
+    .compass-container { position: relative; width: 120px; height: 120px; border: 2px solid rgba(255,255,255,0.1); border-radius: 50%; display: flex; justify-content: center; align-items: center; }
+    .compass-mark { position: absolute; font-size: 0.8rem; font-weight: bold; color: var(--text-muted); }
+    .mark-n { top: 5px; color: var(--accent); }
+    .mark-s { bottom: 5px; }
+    .mark-e { right: 8px; }
+    .mark-w { left: 8px; }
+    .needle { width: 4px; height: 100%; position: absolute; transition: transform 0.5s cubic-bezier(0.4, 0, 0.2, 1); }
+    .needle::before { content: ''; position: absolute; top: 15px; left: 0; border-left: 6px solid transparent; border-right: 6px solid transparent; border-bottom: 30px solid var(--accent); transform: translateX(-4px); }
+    .heading-text { position: absolute; font-size: 1.2rem; font-weight: bold; background: var(--card-bg); padding: 2px 6px; border-radius: 4px; }
+    
+    /* Stats Grid */
+    .stats-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; text-align: center; }
+    .stat-box { background: rgba(255,255,255,0.03); padding: 10px; border-radius: 8px; }
+    .stat-val { font-size: 1.1rem; font-weight: 500; display: block; }
+    .stat-lbl { font-size: 0.7rem; color: var(--text-muted); }
+
+    /* Forms */
+    input, select { width: 100%; background: rgba(0,0,0,0.2); border: 1px solid rgba(255,255,255,0.1); color: white; padding: 10px; border-radius: 8px; margin-top: 5px; }
+    .btn { width: 100%; padding: 12px; border: none; border-radius: 8px; font-weight: 600; cursor: pointer; margin-top: 10px; transition: opacity 0.2s; }
+    .btn-primary { background: var(--accent); color: #000; }
+    .btn-outline { background: transparent; border: 1px solid rgba(255,255,255,0.2); color: white; }
+    .btn:hover { opacity: 0.9; }
+
+    /* WiFi List */
+    .wifi-list { margin-top: 10px; max-height: 150px; overflow-y: auto; }
+    .wifi-item { display: flex; justify-content: space-between; padding: 8px; border-bottom: 1px solid rgba(255,255,255,0.05); cursor: pointer; }
+    .wifi-item:hover { background: rgba(255,255,255,0.05); }
+
+    /* Info Rows */
+    .info-row { display: flex; justify-content: space-between; align-items: center; padding: 6px 0; border-bottom: 1px solid rgba(255,255,255,0.05); }
+    .info-label { font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; }
+    .info-val { font-family: 'Courier New', monospace; color: var(--accent); font-size: 0.9rem; }
+
+    @media (max-width: 600px) {
+      .big-value { font-size: 1.6rem; }
+      .dashboard { grid-template-columns: 1fr; }
     }
   </style>
 </head>
 <body>
   <div class="container">
-    <h1>GPS Node Status</h1>
-    
-    <div class="md-card">
-       <h3>Time</h3>
-       <div class="md-grid">
-        <div class="md-item"><span class="md-label">Time (UTC)</span><span class="md-value" id="time">--</span></div>
-        <div class="md-item"><span class="md-label">Local Time</span><span class="md-value" id="localTime">--:--:--</span></div>
-       </div>
-    </div>
-    
-    <div class="md-card">
-      <h3>Position</h3>
-      <div class="md-grid">
-        <div class="md-item md-item-with-copy"><span class="md-label">Latitude</span><span class="md-value" id="lat">0.0000000</span><button class="copy-btn" onclick="copyValue('lat', this)">Copy</button></div>
-        <div class="md-item md-item-with-copy"><span class="md-label">Longitude</span><span class="md-value" id="lon">0.0000000</span><button class="copy-btn" onclick="copyValue('lon', this)">Copy</button></div>
-        <div class="md-item md-item-with-copy"><span class="md-label">Altitude</span><span class="md-value" id="alt">0.0 m</span><button class="copy-btn" onclick="copyValue('alt', this)">Copy</button></div>
-      </div>
+    <div class="header">
+      <h2>ESP32 GPS Dashboard</h2>
     </div>
 
-    <div class="md-card">
-      <h3>Fix Info</h3>
-      <div class="md-grid">
-        <div class="md-item"><span class="md-label">Status</span><span class="md-value" id="fixStatus">--</span></div>
-        <div class="md-item"><span class="md-label">Visible Satellites</span><span class="md-value" id="sats">0</span></div>
-        <div class="md-item"><span class="md-label">TTFF</span><span class="md-value" id="ttff">--</span></div>
-        <div class="md-item"><span class="md-label">PDOP</span><span class="md-value" id="pdop">--</span></div>
-        <div class="md-item"><span class="md-label">HDOP</span><span class="md-value" id="hdop">--</span></div>
-        <div class="md-item"><span class="md-label">VDOP</span><span class="md-value" id="vdop">--</span></div>
-        <div class="md-item"><span class="md-label">Speed</span><span class="md-value" id="speed">0.0 m/s</span></div>
-        <div class="md-item"><span class="md-label">Heading</span><span class="md-value" id="heading">0.0 &deg;</span></div>
-        <div class="md-item"><span class="md-label">H. Acc</span><span class="md-value" id="hAcc">0.0 m</span></div>
-        <div class="md-item"><span class="md-label">V. Acc</span><span class="md-value" id="vAcc">0.0 m</span></div>
+    <div class="dashboard">
+      <div class="card">
+        <div class="card-title">Position <span id="satsBadge">0 Sats</span></div>
+        <div class="coord-grid">
+          <div class="coord-item">
+            <span class="coord-label">LATITUDE</span>
+            <div class="big-value mono" id="lat">0.0000000</div>
+            <button class="copy-btn" onclick="copy('lat', this)">COPY</button>
+          </div>
+          <div class="coord-item">
+            <span class="coord-label">LONGITUDE</span>
+            <div class="big-value mono" id="lon">0.0000000</div>
+            <button class="copy-btn" onclick="copy('lon', this)">COPY</button>
+          </div>
+          <div class="coord-item">
+            <span class="coord-label">ALTITUDE</span>
+            <div class="big-value mono" id="alt">0.0 m</div>
+            <button class="copy-btn" onclick="copy('alt', this)">COPY</button>
+          </div>
+          
+          <div style="border-top: 1px solid rgba(255,255,255,0.1); padding-top: 1rem; margin-top: 0.5rem; display: flex; justify-content: space-between;">
+             <div><span class="coord-label">LOCAL TIME</span><span class="stat-val" id="localTime">--:--:--</span></div>
+             <div style="text-align: right;"><span class="coord-label">UTC TIME</span><span class="stat-val" id="time">--:--:--</span></div>
+          </div>
+        </div>
       </div>
-    </div>
-    
-    <div class="md-card">
-      <h3>WiFi Settings</h3>
-      <button class="md-btn" onclick="scanWifi()" id="scanBtn">Scan Networks</button>
-      <div id="wifiList" class="wifi-list" style="display:none;"></div>
-      <div style="margin-top: 16px;">
-        <label for="wifiSsid">SSID:</label>
-        <input type="text" id="wifiSsid" class="md-input" placeholder="SSID">
-        <label for="wifiPass" style="margin-top: 12px;">Password:</label>
-        <input type="password" id="wifiPass" class="md-input" placeholder="Password">
-        <button class="md-btn" onclick="saveWifi()" id="saveBtn">Connect & Save</button>
-      </div>
-    </div>
 
-    <div class="md-card">
-      <h3>System & Configuration</h3>
-      <div class="md-grid" style="margin-bottom: 16px;">
-          <div class="md-item"><span class="md-label">Station IP</span><span class="md-value" id="stationIp">--</span></div>
-          <div class="md-item"><span class="md-label">AP IP</span><span class="md-value" id="apIp">--</span></div>
+      <div class="card">
+        <div class="card-title">Navigation</div>
+        <div class="nav-row">
+          <div class="compass-container">
+            <div class="compass-mark mark-n">N</div>
+            <div class="compass-mark mark-e">E</div>
+            <div class="compass-mark mark-s">S</div>
+            <div class="compass-mark mark-w">W</div>
+            <div class="needle" id="compassNeedle"></div>
+            <div class="heading-text" id="heading">0&deg;</div>
+          </div>
+          <div style="text-align: center;">
+            <div class="coord-label">SPEED</div>
+            <div class="big-value" id="speed">0.0</div>
+            <div class="unit">m/s</div>
+          </div>
+        </div>
+        <div class="stats-grid" style="margin-top: 1.5rem;">
+           <div class="stat-box">
+             <span class="stat-val" id="hAcc">0 m</span>
+             <span class="stat-lbl">H. Acc</span>
+           </div>
+           <div class="stat-box">
+             <span class="stat-val" id="vAcc">0 m</span>
+             <span class="stat-lbl">V. Acc</span>
+           </div>
+           <div class="stat-box">
+             <span class="stat-val" id="ttff">--</span>
+             <span class="stat-lbl">TTFF</span>
+           </div>
+        </div>
       </div>
-      <label for="ledMode">LED Mode:</label>
-      <select class="md-select" id="ledMode" onchange="setLedMode(this.value)">
-        <option value="0">Off</option> <option value="1">On</option> <option value="2">Blink on Read</option> <option value="3">Blink on Fix</option> <option value="4">Blink on Movement</option>
-      </select>
-      <label for="updateInterval" style="margin-top: 16px;">GPS Update Interval:</label>
-      <select class="md-select" id="updateInterval" onchange="changeUpdateInterval(this.value)">
-        <option value="1000">1 second</option> <option value="2000">2 seconds</option> <option value="5000">5 seconds</option> <option value="10000">10 seconds</option> <option value="30000">30 seconds</option> <option value="0">Paused</option>
-      </select>
-      <button class="md-btn" onclick="window.location.href='/update'" style="margin-top: 16px;">OTA Update</button>
+
+      <div class="card">
+        <div class="card-title" style="display: flex; justify-content: space-between; align-items: center;">
+            Signal Quality
+            <div class="status-badge">
+                <div id="statusDot" class="status-dot"></div>
+                <span id="fixStatus">Initializing...</span>
+            </div>
+        </div>
+        <div class="stats-grid">
+          <div class="stat-box">
+            <span class="stat-val" id="pdop">--</span>
+            <span class="stat-lbl">PDOP</span>
+          </div>
+          <div class="stat-box">
+            <span class="stat-val" id="hdop">--</span>
+            <span class="stat-lbl">HDOP</span>
+          </div>
+          <div class="stat-box">
+            <span class="stat-val" id="vdop">--</span>
+            <span class="stat-lbl">VDOP</span>
+          </div>
+        </div>
+        
+        <div style="margin-top: 1.5rem;">
+           <div class="card-title">Configuration</div>
+           <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+             <div>
+                <label class="coord-label">LED MODE</label>
+                <select id="ledMode" onchange="setLed(this.value)">
+                  <option value="0">Off</option> <option value="1">On</option>
+                  <option value="2">Blink (Read)</option> <option value="3">Blink (Fix)</option>
+                  <option value="4">Blink (Move)</option>
+                </select>
+             </div>
+             <div>
+                <label class="coord-label">UPDATE RATE</label>
+                <select id="rate" onchange="setRate(this.value)">
+                  <option value="1000">1s</option> <option value="5000">5s</option>
+                  <option value="10000">10s</option> <option value="30000">30s</option>
+                </select>
+             </div>
+           </div>
+           
+           <div style="margin-top: 15px;">
+              <div class="info-row">
+                  <span class="info-label">STATION IP</span>
+                  <span class="info-val" id="stIp">--</span>
+              </div>
+              <div class="info-row">
+                  <span class="info-label">AP IP</span>
+                  <span class="info-val" id="apIp">--</span>
+              </div>
+              <div class="info-row">
+                  <span class="info-label">NINA TCP PORT</span>
+                  <span class="info-val" id="tcpPort">--</span>
+              </div>
+           </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">WiFi Setup</div>
+        <button class="btn btn-outline" id="scanBtn" onclick="scanWifi()">Scan Networks</button>
+        <div id="wifiList" class="wifi-list"></div>
+        <div style="margin-top: 1rem;">
+          <input type="text" id="ssid" placeholder="Network SSID">
+          <input type="password" id="pass" placeholder="Password">
+          <button class="btn btn-primary" id="saveBtn" onclick="saveWifi()">Connect & Save</button>
+        </div>
+        <div style="margin-top: 1rem; border-top: 1px solid rgba(255,255,255,0.1); padding-top: 1rem;">
+            <button class="btn btn-outline" onclick="location.href='/update'">OTA Firmware Update</button>
+        </div>
+      </div>
     </div>
   </div>
+
   <script>
-    let ledModeActive=false, updateIntervalId=null, currentUpdateInterval=5000;
-    const ledModeSelect=document.getElementById('ledMode'), updateIntervalSelect=document.getElementById('updateInterval');
-    updateIntervalSelect.value="5000";
-    ledModeSelect.addEventListener('focus',()=>{ledModeActive=true;});
-    ledModeSelect.addEventListener('blur',()=>{ledModeActive=false;});
-    function updateData(){
-      fetch('/api/status').then(r=>r.json()).then(d=>{
-          if(d.stationIp) document.getElementById('stationIp').textContent=d.stationIp;
-          if(d.apIp) document.getElementById('apIp').textContent=d.apIp;
-          document.getElementById('fixStatus').textContent=d.fixStatus;
-          document.getElementById('sats').textContent=d.sats;
-          document.getElementById('ttff').textContent=d.ttff>=0?d.ttff+' s':'--';
-          document.getElementById('pdop').textContent=Number(d.pdop).toFixed(2);
-          document.getElementById('hdop').textContent=Number(d.hdop).toFixed(2);
-          document.getElementById('vdop').textContent=Number(d.vdop).toFixed(2);
-          
-          document.getElementById('time').textContent=d.time;
-          document.getElementById('localTime').textContent=d.localTime;
-          document.getElementById('lat').textContent=Number(d.lat).toFixed(7);
-          document.getElementById('lon').textContent=Number(d.lon).toFixed(7);
-          document.getElementById('alt').textContent=Number(d.alt).toFixed(2)+' m';
-          document.getElementById('speed').textContent=Number(d.speed).toFixed(2)+" m/s";
-          document.getElementById('heading').textContent=Number(d.heading).toFixed(1)+" \u00B0";
-          document.getElementById('hAcc').textContent=Number(d.hAcc).toFixed(2)+" m";
-          document.getElementById('vAcc').textContent=Number(d.vAcc).toFixed(2)+" m";
-          
-          if(!ledModeActive && ledModeSelect.value!=d.ledMode) ledModeSelect.value=d.ledMode;
-        }).catch(e=>console.error(e));
-    }
-    function setLedMode(m){fetch('/api/set_led?mode='+m).catch(e=>console.error(e));}
-    function changeUpdateInterval(i){
-      const ms=parseInt(i); currentUpdateInterval=ms;
-      fetch('/api/set_interval?interval='+ms).catch(e=>console.error(e));
-      if(updateIntervalId){clearInterval(updateIntervalId);updateIntervalId=null;}
-      if(ms>0){updateIntervalId=setInterval(updateData,ms);updateData();}
-    }
-    function scanWifi(){
-      const btn = document.getElementById('scanBtn');
-      const list = document.getElementById('wifiList');
-      btn.disabled = true; btn.textContent = 'Scanning...';
-      list.style.display = 'none'; list.innerHTML = '';
-      
-      fetch('/api/scan').then(r=>r.json()).then(networks=>{
-        btn.disabled = false; btn.textContent = 'Scan Networks';
-        if(networks.length===0) return;
-        list.style.display = 'block';
-        networks.forEach(n=>{
-          const div=document.createElement('div');
-          div.className='wifi-item';
-          div.innerHTML=`<span>${n.ssid}</span><span class="wifi-rssi">${n.rssi} dBm</span>`;
-          div.onclick=()=>{document.getElementById('wifiSsid').value=n.ssid; document.getElementById('wifiPass').focus();}
-          list.appendChild(div);
+    let intervalId = null;
+    let currentInterval = 5000;
+    let isEditing = false;
+    
+    // UI Updates
+    function updateData() {
+      fetch('/api/status').then(r => r.json()).then(d => {
+        // IDs
+        const ids = ['lat','lon','alt','speed','hAcc','vAcc','pdop','hdop','vdop','time','localTime','fixStatus'];
+        ids.forEach(id => {
+          const el = document.getElementById(id);
+          if(el) {
+             let val = d[id];
+             if(typeof val === 'number') {
+                if(id.includes('dop')) val = val.toFixed(2);
+                else if(id.includes('lat') || id.includes('lon')) val = val.toFixed(7);
+                else if(id.includes('Acc')) val = val.toFixed(1) + ' m';
+                else if(id === 'alt') val = val.toFixed(2) + ' m';
+                else val = val.toFixed(2);
+             }
+             el.textContent = val;
+          }
         });
-      }).catch(e=>{console.error(e); btn.disabled=false; btn.textContent='Scan Failed';});
+        
+        // Custom Logic
+        document.getElementById('ttff').textContent = d.ttff >= 0 ? d.ttff + 's' : '--';
+        document.getElementById('satsBadge').textContent = d.sats + ' Sats';
+        document.getElementById('stIp').textContent = d.stationIp;
+        document.getElementById('apIp').textContent = d.apIp;
+        document.getElementById('tcpPort').textContent = d.tcpPort;
+        
+        // Compass
+        document.getElementById('heading').innerHTML = Math.round(d.heading) + '&deg;';
+        document.getElementById('compassNeedle').style.transform = `rotate(${d.heading}deg)`;
+        
+        // Status Dot
+        const dot = document.getElementById('statusDot');
+        if(d.fixStatus.includes("3D") || d.fixStatus.includes("2D")) {
+            dot.style.background = "var(--success)";
+            dot.style.boxShadow = "0 0 10px var(--success)";
+        } else if(d.connected) {
+            dot.style.background = "var(--warning)";
+            dot.style.boxShadow = "0 0 10px var(--warning)";
+        } else {
+            dot.style.background = "var(--danger)";
+        }
+
+        // Inputs
+        if(!isEditing) {
+            if(document.activeElement !== document.getElementById('ledMode')) 
+               document.getElementById('ledMode').value = d.ledMode;
+            
+            const rateEl = document.getElementById('rate');
+            if(document.activeElement !== rateEl && d.rate) {
+               rateEl.value = d.rate;
+               if(d.rate != currentInterval) {
+                   clearInterval(intervalId);
+                   currentInterval = d.rate;
+                   intervalId = setInterval(updateData, currentInterval);
+               }
+            }
+        }
+      }).catch(e => console.log(e));
     }
-    function saveWifi(){
-      const ssid = document.getElementById('wifiSsid').value;
-      const pass = document.getElementById('wifiPass').value;
-      const btn = document.getElementById('saveBtn');
-      if(!ssid) return alert('SSID Required');
-      btn.disabled=true; btn.textContent='Saving...';
-      fetch(`/api/save_wifi?ssid=${encodeURIComponent(ssid)}&pass=${encodeURIComponent(pass)}`).then(r=>r.text()).then(t=>{
-        alert(t); btn.textContent='Saved';
-      }).catch(e=>{console.error(e); btn.textContent='Error'; btn.disabled=false;});
+
+    // Actions
+    function setLed(v) { fetch('/api/set_led?mode='+v); }
+    function setRate(v) { 
+        fetch('/api/set_interval?interval='+v);
+        clearInterval(intervalId);
+        currentInterval = parseInt(v);
+        if(v > 0) intervalId = setInterval(updateData, v);
     }
-    function copyValue(id,btn){
-      const txt=document.getElementById(id).textContent.replace(/\s*[a-zA-Z\/]+\s*$/,'').trim();
-      if(navigator.clipboard&&navigator.clipboard.writeText){
-        navigator.clipboard.writeText(txt).then(()=>{btn.textContent='Copied!';btn.classList.add('copied');setTimeout(()=>{btn.textContent='Copy';btn.classList.remove('copied');},2000);})
-        .catch(()=>copyFallback(txt,btn));
-      }else copyFallback(txt,btn);
+    
+    // Copy Function with Fallback
+    function copy(id, btn) {
+        const val = document.getElementById(id).textContent;
+        // Try Clipboard API first
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(val).then(() => showCopyFeedback(btn))
+            .catch(err => copyFallback(val, btn));
+        } else {
+            copyFallback(val, btn);
+        }
     }
-    function copyFallback(t,btn){
-      const ta=document.createElement('textarea');ta.value=t;ta.style.position='fixed';ta.style.opacity='0';document.body.appendChild(ta);ta.select();
-      try{
-        if(document.execCommand('copy')){btn.textContent='Copied!';btn.classList.add('copied');setTimeout(()=>{btn.textContent='Copy';btn.classList.remove('copied');},2000);}
-        else{btn.textContent='Failed';setTimeout(()=>{btn.textContent='Copy';},2000);}
-      }catch(e){btn.textContent='Failed';setTimeout(()=>{btn.textContent='Copy';},2000);}finally{document.body.removeChild(ta);}
+
+    function copyFallback(text, btn) {
+        const textArea = document.createElement("textarea");
+        textArea.value = text;
+        textArea.style.position = "fixed";  // Avoid scrolling to bottom
+        textArea.style.opacity = "0";
+        document.body.appendChild(textArea);
+        textArea.focus();
+        textArea.select();
+        try {
+            const successful = document.execCommand('copy');
+            if(successful) showCopyFeedback(btn);
+            else console.error('Fallback copy failed');
+        } catch (err) {
+            console.error('Fallback copy failed', err);
+        }
+        document.body.removeChild(textArea);
     }
-    updateIntervalId=setInterval(updateData,currentUpdateInterval);updateData();
+
+    function showCopyFeedback(btn) {
+        const orig = btn.textContent;
+        btn.textContent = "COPIED";
+        btn.style.borderColor = "var(--success)";
+        btn.style.color = "var(--success)";
+        setTimeout(() => {
+            btn.textContent = orig;
+            btn.style.borderColor = "";
+            btn.style.color = "";
+        }, 1500);
+    }
+
+    function scanWifi() {
+        const list = document.getElementById('wifiList');
+        const btn = document.getElementById('scanBtn');
+        btn.textContent = "Scanning..."; btn.disabled = true;
+        list.innerHTML = '';
+        fetch('/api/scan').then(r => r.json()).then(nets => {
+            btn.textContent = "Scan Networks"; btn.disabled = false;
+            nets.forEach(n => {
+                const div = document.createElement('div');
+                div.className = 'wifi-item';
+                div.innerHTML = `<span>${n.ssid}</span><span style="color:var(--text-muted)">${n.rssi}dB</span>`;
+                div.onclick = () => {
+                    document.getElementById('ssid').value = n.ssid;
+                    document.getElementById('pass').focus();
+                };
+                list.appendChild(div);
+            });
+        });
+    }
+
+    function saveWifi() {
+        const s = document.getElementById('ssid').value;
+        const p = document.getElementById('pass').value;
+        if(!s) return alert("SSID required");
+        const btn = document.getElementById('saveBtn');
+        btn.textContent = "Saving...";
+        fetch(`/api/save_wifi?ssid=${encodeURIComponent(s)}&pass=${encodeURIComponent(p)}`)
+        .then(r => { alert("Saved. Rebooting..."); location.reload(); });
+    }
+
+    // Init
+    document.getElementById('ledMode').addEventListener('focus', () => isEditing = true);
+    document.getElementById('ledMode').addEventListener('blur', () => isEditing = false);
+    intervalId = setInterval(updateData, 5000);
+    updateData();
   </script>
 </body>
 </html>
@@ -214,6 +405,7 @@ void setupWeb() {
     JsonDocument doc;
     doc["stationIp"] = WiFi.localIP().toString();
     doc["apIp"] = WiFi.softAPIP().toString();
+    doc["tcpPort"] = TCP_PORT;
     doc["connected"] = gpsData.isConnected;
     doc["fixStatus"] = gpsData.fixStatus;
     doc["sats"] = gpsData.satellites;
@@ -232,6 +424,7 @@ void setupWeb() {
     doc["vAcc"] = gpsData.vAcc;
     doc["ledMode"] = (int)gpsData.ledMode;
     doc["ledBlinkMs"] = LED_BLINK_DURATION_MS;
+    doc["rate"] = gpsData.gpsInterval;
     String response;
     serializeJson(doc, response);
     request->send(200, "application/json", response);
@@ -241,8 +434,6 @@ void setupWeb() {
     if (request->hasParam("mode")) {
       int mode = request->getParam("mode")->value().toInt();
       gpsData.ledMode = static_cast<LedMode>(mode);
-      // We need to stop the ticker if we change modes, this is done via LedControl logic implies
-      // But we can reset state here
       if (gpsData.ledMode == LED_OFF) {
         digitalWrite(LED_PIN, LOW);
       } else if (gpsData.ledMode == LED_ON) {

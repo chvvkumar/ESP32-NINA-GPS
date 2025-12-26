@@ -17,7 +17,7 @@ void setupGPS() {
     gpsData.isConnected = true;
     
     myGNSS.setI2COutput(COM_TYPE_UBX); 
-    myGNSS.setNavigationFrequency(1);
+    myGNSS.setMeasurementRate(gpsData.gpsInterval);
   }
 }
 
@@ -29,6 +29,14 @@ void pollGPS() {
       setupGPS();
     }
     return;
+  }
+  
+  static unsigned long lastInterval = 0;
+  if (lastInterval != gpsData.gpsInterval) {
+    myGNSS.setMeasurementRate(gpsData.gpsInterval);
+    lastInterval = gpsData.gpsInterval;
+    Serial.print(F("GPS Rate updated to: "));
+    Serial.println(lastInterval);
   }
 
   myGNSS.checkUblox(); 
@@ -63,8 +71,8 @@ void pollGPS() {
   switch(fixType) {
       case 0: gpsData.fixStatus = "No Fix"; break;
       case 1: gpsData.fixStatus = "Dead Reckoning"; break;
-      case 2: gpsData.fixStatus = "2D Fix"; break;
-      case 3: gpsData.fixStatus = "3D Fix"; break;
+      case 2: gpsData.fixStatus = gnssFixOk ? "2D Fix" : "2D Fix (Low Acc)"; break;
+      case 3: gpsData.fixStatus = gnssFixOk ? "3D Fix" : "3D Fix (Low Acc)"; break;
       default: gpsData.fixStatus = "Unknown"; break;
   }
 
@@ -91,7 +99,7 @@ void pollGPS() {
     gpsData.vAcc = myGNSS.getVerticalAccEst() / 1000.0;
   }
 
-  if (myGNSS.getDOP()) {
+  if (myGNSS.getDOP()){
     gpsData.pdop = myGNSS.getPositionDOP() / 100.0;
     gpsData.hdop = myGNSS.getHorizontalDOP() / 100.0;
     gpsData.vdop = myGNSS.getVerticalDOP() / 100.0;
