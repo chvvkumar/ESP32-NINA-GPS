@@ -91,6 +91,10 @@ const char index_html[] PROGMEM = R"rawliteral(
     .info-label { font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; }
     .info-val { font-family: 'Courier New', monospace; color: var(--accent); font-size: 0.9rem; }
 
+    /* Globe */
+    .globe-container { width: 100%; height: 280px; background: rgba(0,0,0,0.3); border-radius: 8px; position: relative; overflow: hidden; display: flex; justify-content: center; align-items: center; }
+    canvas { width: 100%; height: 100%; }
+
     @media (max-width: 600px) {
       .big-value { font-size: 1.6rem; }
       .dashboard { grid-template-columns: 1fr; }
@@ -227,6 +231,16 @@ const char index_html[] PROGMEM = R"rawliteral(
       </div>
 
       <div class="card">
+        <div class="card-title">3D Earth View</div>
+        <div class="globe-container">
+           <canvas id="globeCanvas"></canvas>
+        </div>
+        <div style="text-align:center; margin-top:10px; font-size:0.8rem; color:var(--text-muted)">
+           Lat: <span id="globeLatVal">0.00</span> | Lon: <span id="globeLonVal">0.00</span>
+        </div>
+      </div>
+
+      <div class="card">
         <div class="card-title">WiFi Setup</div>
         <button class="btn btn-outline" id="scanBtn" onclick="scanWifi()">Scan Networks</button>
         <div id="wifiList" class="wifi-list"></div>
@@ -305,6 +319,7 @@ const char index_html[] PROGMEM = R"rawliteral(
                }
             }
         }
+        if(window.updateGlobePos) window.updateGlobePos(d.lat, d.lon);
       }).catch(e => console.log(e));
     }
 
@@ -394,6 +409,113 @@ const char index_html[] PROGMEM = R"rawliteral(
     document.getElementById('ledMode').addEventListener('blur', () => isEditing = false);
     intervalId = setInterval(updateData, 5000);
     updateData();
+
+    // --- 2D World Map Visualization ---
+    const mapCanvas = document.getElementById('globeCanvas');
+    const ctx = mapCanvas.getContext('2d');
+    let mapWidth, mapHeight;
+    let currentLat = 0, currentLon = 0;
+    
+    // 2D ASCII Map (approx 10deg res)
+    // 0=Water, 1=Americas, 2=Europe/Africa, 3=Asia/Aus, 4=Antarctica
+    const worldMap = [
+      "000000000000000000000000000000000000", // +90
+      "001100000000110000001111110000000000", // +80
+      "001110010001100000001111111100000000", // +70
+      "001110011001110000011111111110000000", // +60
+      "000111110000111100001111111111000000", // +50
+      "000011100000111100000011111111111000", // +40
+      "000011100000011100000001111111111110", // +30
+      "000001100000011110000000111111111110", // +20
+      "000001100000011111000000011110001100", // +10
+      "000001110000001111000000111111001100", // 0
+      "000011100000000111000000111111001110", // -10
+      "000011000000000011100000001110001100", // -20
+      "000011000000000011100000000110001100", // -30
+      "000011000000000011000000000000001100", // -40
+      "000011000000000000000000000000000000", // -50
+      "000001000000000000000000000000000000", // -60
+      "000000000000000000000011110000000000", // -70
+      "011111111111111111111111111111111110", // -80
+    ];
+
+    function resizeMap() {
+        const p = mapCanvas.parentElement;
+        mapWidth = p.clientWidth;
+        mapHeight = p.clientHeight;
+        mapCanvas.width = mapWidth;
+        mapCanvas.height = mapHeight;
+        drawMap();
+    }
+    window.addEventListener('resize', resizeMap);
+    setTimeout(resizeMap, 100);
+
+    function drawMap() {
+        if(!mapWidth) return;
+        ctx.clearRect(0, 0, mapWidth, mapHeight);
+        
+        // Background Grid
+        ctx.strokeStyle = 'rgba(0, 229, 255, 0.1)';
+        ctx.lineWidth = 1;
+        
+        // Draw Map Tiles
+        const cellW = mapWidth / 36.0;
+        const cellH = mapHeight / 18.0;
+        
+        for(let r=0; r<worldMap.length; r++) {
+            for(let c=0; c<worldMap[r].length; c++) {
+                if(worldMap[r][c] === '1') {
+                    ctx.fillStyle = 'rgba(0, 229, 255, 0.15)'; // Land color
+                    ctx.fillRect(c*cellW, r*cellH, cellW-1, cellH-1);
+                }
+            }
+        }
+        
+        // Grid Lines
+        ctx.beginPath();
+        for(let x=0; x<=mapWidth; x+=cellW*3) { ctx.moveTo(x,0); ctx.lineTo(x,mapHeight); }
+        for(let y=0; y<=mapHeight; y+=cellH*3) { ctx.moveTo(0,y); ctx.lineTo(mapWidth,y); }
+        ctx.stroke();
+
+        // Current Position
+        const x = ((currentLon + 180) / 360) * mapWidth;
+        const y = ((90 - currentLat) / 180) * mapHeight;
+
+        // Crosshair
+        ctx.strokeStyle = '#d50000';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(x, 0); ctx.lineTo(x, mapHeight);
+        ctx.moveTo(0, y); ctx.lineTo(mapWidth, y);
+        ctx.stroke();
+
+        // Pulse Dot
+        ctx.shadowBlur = 10;
+        ctx.shadowColor = '#d50000';
+        ctx.fillStyle = '#ff0000';
+        ctx.beginPath();
+        ctx.arc(x, y, 4, 0, Math.PI*2);
+        ctx.fill();
+        
+        // Ring
+        ctx.shadowBlur = 0;
+        ctx.strokeStyle = '#ff0000';
+        ctx.beginPath();
+        const pulse = (Date.now() % 1000) / 50;
+        ctx.arc(x, y, 4 + pulse, 0, Math.PI*2);
+        ctx.stroke();
+        
+        requestAnimationFrame(drawMap);
+    }
+    
+    window.updateGlobePos = function(lat, lon) {
+        currentLat = lat; 
+        currentLon = lon;
+        const elLat = document.getElementById('globeLatVal');
+        const elLon = document.getElementById('globeLonVal');
+        if(elLat) elLat.textContent = lat.toFixed(4);
+        if(elLon) elLon.textContent = lon.toFixed(4);
+    };
   </script>
 </body>
 </html>
