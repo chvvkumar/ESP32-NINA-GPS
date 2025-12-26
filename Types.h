@@ -18,6 +18,7 @@ struct GPSData {
   bool hadFirstFix = false;
   String fixStatus = "Initializing";
   int satellites = 0;
+  int satellitesVisible = 0;
   
   unsigned long startTime = 0;
   unsigned long firstFixTime = 0;

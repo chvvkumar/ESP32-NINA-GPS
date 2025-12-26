@@ -8,6 +8,9 @@
 void setupGPS() {
   Wire.begin(I2C_SDA, I2C_SCL);
   Wire.setClock(400000);
+  
+  // Increase I2C buffer for large NAV-SAT messages
+  myGNSS.setPacketCfgPayloadSize(1024);
 
   if (myGNSS.begin(Wire, 0x42) == false) {
     Serial.println(F("u-blox GNSS not detected. Check wiring!"));
@@ -53,6 +56,12 @@ void pollGPS() {
   bool gnssFixOk = myGNSS.getGnssFixOk();
 
   gpsData.satellites = sats;
+  
+  // Get Visible Satellites (from NAV SAT)
+  if (myGNSS.getNAVSAT()) {
+    gpsData.satellitesVisible = myGNSS.packetUBXNAVSAT->data.header.numSvs;
+  }
+
   gpsData.fixType = fixType;
   gpsData.hasFix = (fixType >= 2 && gnssFixOk);
 
