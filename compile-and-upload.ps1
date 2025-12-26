@@ -72,6 +72,7 @@ if ($ARDUINO_CLI) {
     $compileOutput = & $ARDUINO_CLI compile --fqbn $FQBN `
         --build-path $BUILD_PATH `
         --warnings "default" `
+        --build-property "compiler.cpp.extra_flags=-DELEGANTOTA_USE_ASYNC_WEBSERVER=1" `
         $SKETCH_PATH 2>&1 | ForEach-Object {
             $line = $_.ToString()
             # Show important messages

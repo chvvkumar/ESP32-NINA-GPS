@@ -7,8 +7,8 @@ const char* const WIFI_SSID = "";
 const char* const WIFI_PASS = "";
 
 // Access Point Mode (Create own network)
-const char* const AP_SSID = "GPS-ESP32-AP";
-const char* const AP_PASS = "kkkkkkkk";
+const char* const AP_SSID = "ESP32-GPS";
+const char* const AP_PASS = NULL;
 
 // Hardware definitions
 #define LED_PIN 2            

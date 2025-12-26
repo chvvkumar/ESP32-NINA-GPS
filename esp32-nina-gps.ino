@@ -6,10 +6,12 @@
  * 3. AsyncTCP
  * 4. ArduinoJson
  * 5. Ticker
+ * 6. ElegantOTA
  */
 
 #include <Arduino.h>
 #include <WiFi.h>
+#include <Preferences.h>
 
 // Include Custom Modules
 #include "Config.h"
@@ -35,7 +37,20 @@ void setup() {
   // Network Init
   WiFi.mode(WIFI_AP_STA);
   WiFi.softAP(AP_SSID, AP_PASS);
-  WiFi.begin(WIFI_SSID, WIFI_PASS);
+
+  Preferences prefs;
+  prefs.begin("wifi_config", true); // Read-only
+  String savedSSID = prefs.getString("ssid", "");
+  String savedPass = prefs.getString("pass", "");
+  prefs.end();
+
+  if (savedSSID.length() > 0) {
+    Serial.print("Connecting to Saved WiFi: "); Serial.println(savedSSID);
+    WiFi.begin(savedSSID.c_str(), savedPass.c_str());
+  } else {
+    Serial.print("Connecting to Config WiFi: "); Serial.println(WIFI_SSID);
+    WiFi.begin(WIFI_SSID, WIFI_PASS);
+  }
   
   Serial.print("AP IP: "); Serial.println(WiFi.softAPIP());
   
@@ -59,5 +74,6 @@ void loop() {
     connectedPrinted = true;
   }
   
+  webLoop();
   delay(1);
 }

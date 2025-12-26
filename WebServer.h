@@ -2,5 +2,6 @@
 #define WEB_SERVER_H
 
 void setupWeb();
+void webLoop();
 
 #endif
