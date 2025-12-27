@@ -1,6 +1,6 @@
 # ESP32-NINA-GPS
 
-Lightweight firmware to provide GPS location and satellite status from a u-blox GNSS module to NINA. The ESP32 runs a TCP server (port 2947) and serves a web dashboard with live GPS and supports OTA updates.
+Lightweight firmware to provide GPS location and satellite status from a u-blox NEO-M9N GNSS module (see description below) to NINA. The ESP32 runs a TCP server (port 2947) and serves a web dashboard with live GPS and supports OTA updates.
 
 ![Dashboard](/images/dashboard.png)
 
