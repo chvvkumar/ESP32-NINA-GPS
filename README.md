@@ -13,7 +13,7 @@ Lightweight firmware to provide GPS location and satellite status from a u-blox 
 
 1. Hardware
 - ESP32 board (any common variant: `ESP32 DevKitC`, `ESP32-WROOM-32`, `ESP32-S3`, etc.)
-- u-blox GNSS module connected via I2C (SDA, SCL) and a status LED (optional)
+- u-blox GNSS module connected via I2C (SDA, SCL) and supported by the [Sparkfun library](https://github.com/sparkfun/SparkFun_u-blox_GNSS_Arduino_Library)
 
 2. Libraries
 Install these libraries with the Arduino Library Manager or PlatformIO:
