@@ -30,6 +30,7 @@ struct GPSData {
   double lat = 0.0;
   double lon = 0.0;
   double alt = 0.0; 
+  double altMSL = 0.0;
   
   float speed = 0.0; 
   float heading = 0.0;

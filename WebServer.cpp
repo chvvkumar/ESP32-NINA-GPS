@@ -84,6 +84,7 @@ const char index_html[] PROGMEM = R"rawliteral(
     .btn { width: 100%; padding: 12px; border: none; border-radius: 8px; font-weight: 600; cursor: pointer; margin-top: 10px; transition: opacity 0.2s; }
     .btn-primary { background: var(--accent); color: #000; }
     .btn-outline { background: transparent; border: 1px solid rgba(255,255,255,0.2); color: white; }
+    .btn-danger { background: var(--danger); color: white; }
     .btn:hover { opacity: 0.9; }
 
     /* WiFi List */
@@ -191,8 +192,8 @@ const char index_html[] PROGMEM = R"rawliteral(
       <div class="card">
         <div class="card-title">Signal Quality</div>
         
-        <!-- Satellite Counts -->
-        <div class="stats-grid" style="grid-template-columns: 1fr 1fr; margin-bottom: 10px;">
+        <!-- Satellite Counts & Uptime -->
+        <div class="stats-grid" style="grid-template-columns: repeat(3, 1fr); margin-bottom: 10px;">
           <div class="stat-box">
             <span class="stat-val" id="satsUsed">--</span>
             <span class="stat-lbl">Used Sats</span>
@@ -200,6 +201,10 @@ const char index_html[] PROGMEM = R"rawliteral(
           <div class="stat-box">
             <span class="stat-val" id="satsVisible">--</span>
             <span class="stat-lbl">Visible Sats</span>
+          </div>
+          <div class="stat-box">
+            <span class="stat-val" id="uptime">--</span>
+            <span class="stat-lbl">Uptime</span>
           </div>
         </div>
 
@@ -272,8 +277,9 @@ const char index_html[] PROGMEM = R"rawliteral(
           <input type="password" id="pass" placeholder="Password">
           <button class="btn btn-primary" id="saveBtn" onclick="saveWifi()">Connect & Save</button>
         </div>
-        <div style="margin-top: 1rem; border-top: 1px solid rgba(255,255,255,0.1); padding-top: 1rem;">
+        <div style="margin-top: 1rem; border-top: 1px solid rgba(255,255,255,0.1); padding-top: 1rem; display: flex; gap: 10px;">
             <button class="btn btn-outline" onclick="location.href='/update'">OTA Firmware Update</button>
+            <button class="btn btn-danger" onclick="rebootEsp()">Reboot System</button>
         </div>
       </div>
     </div>
@@ -305,6 +311,7 @@ const char index_html[] PROGMEM = R"rawliteral(
         document.getElementById('ttff').textContent = d.ttff >= 0 ? d.ttff + 's' : '--';
         document.getElementById('satsUsed').textContent = d.sats;
         document.getElementById('satsVisible').textContent = d.satsVisible;
+        document.getElementById('uptime').innerHTML = d.uptime;
         document.getElementById('stIp').textContent = d.stationIp;
         document.getElementById('apIp').textContent = d.apIp;
         document.getElementById('tcpPort').textContent = d.tcpPort;
@@ -414,6 +421,15 @@ const char index_html[] PROGMEM = R"rawliteral(
         btn.textContent = "Saving...";
         fetch(`/api/save_wifi?ssid=${encodeURIComponent(s)}&pass=${encodeURIComponent(p)}`)
         .then(r => { alert("Saved. Rebooting..."); location.reload(); });
+    }
+
+    function rebootEsp() {
+        if(confirm("Are you sure you want to reboot the system?")) {
+            fetch('/api/reboot').then(r => {
+                alert("System is rebooting... Page will reload in 10 seconds.");
+                setTimeout(() => location.reload(), 10000);
+            });
+        }
     }
 
     document.getElementById('ledMode').addEventListener('focus', () => isEditing = true);
@@ -608,6 +624,17 @@ void setupWeb() {
     doc["ledMode"] = (int)gpsData.ledMode;
     doc["ledBlinkMs"] = LED_BLINK_DURATION_MS;
     doc["rate"] = gpsData.gpsInterval;
+
+    unsigned long uptimeMillis = millis();
+    unsigned long seconds = uptimeMillis / 1000;
+    int days = seconds / 86400;
+    int hours = (seconds % 86400) / 3600;
+    int minutes = (seconds % 3600) / 60;
+    int secs = seconds % 60;
+    char uptimeStr[30];
+    sprintf(uptimeStr, "%dd<br>%02d:%02d:%02d", days, hours, minutes, secs);
+    doc["uptime"] = uptimeStr;
+
     String response;
     serializeJson(doc, response);
     request->send(200, "application/json", response);
@@ -650,6 +677,12 @@ void setupWeb() {
     serializeJson(doc, response);
     request->send(200, "application/json", response);
     WiFi.scanDelete();
+  });
+
+  webServer.on("/api/reboot", HTTP_GET, [](AsyncWebServerRequest *request){
+    request->send(200, "text/plain", "Rebooting...");
+    delay(1000);
+    ESP.restart();
   });
 
   webServer.on("/api/save_wifi", HTTP_GET, [](AsyncWebServerRequest *request){

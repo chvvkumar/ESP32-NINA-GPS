@@ -142,7 +142,7 @@ void broadcastData() {
     tpv += ",\"lon\":" + String(gpsData.lon, 7);
     tpv += ",\"alt\":" + String(gpsData.alt, 3);
     tpv += ",\"altHAE\":" + String(gpsData.alt, 3);
-    tpv += ",\"altMSL\":" + String(gpsData.alt, 3);
+    tpv += ",\"altMSL\":" + String(gpsData.altMSL, 3);
     tpv += ",\"speed\":" + String(gpsData.speed, 3);
     tpv += ",\"track\":" + String(gpsData.heading, 2);
     tpv += ",\"epx\":" + String(gpsData.hAcc, 2);

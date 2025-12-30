@@ -22,15 +22,11 @@ $BUILD_PATH = Join-Path $env:LOCALAPPDATA "arduino\sketches\$SKETCH_HASH"
 # Standard paths
 $ARDUINO15_PATH = "$env:LOCALAPPDATA\Arduino15"
 
-# Board configuration for ESP32 Dev Module
-# FlashSize=4M matches "4MB (32Mb)"
-# PartitionScheme=default matches "Default 4MB with spiffs (1.2MB APP/1.5MB SPIFFS)"
-# FlashFreq=80 matches "80MHz"
-# FlashMode=qio matches "QIO"
-# UploadSpeed=921600 matches "921600"
-$FQBN = "esp32:esp32:esp32:FlashSize=4M,PartitionScheme=default,FlashFreq=80,FlashMode=qio,UploadSpeed=921600"
-$BOARD = "esp32"
-$CHIP = "esp32"
+# Board configuration for Seeed Studio XIAO ESP32S3 (Generic S3 Fallback)
+# Using generic S3 definition since specific board might be missing in older cores
+$FQBN = "esp32:esp32:esp32s3:FlashSize=8M,PartitionScheme=default_8MB,CDCOnBoot=cdc"
+$BOARD = "esp32s3"
+$CHIP = "esp32s3"
 
 # Tool paths (will be detected dynamically)
 $ESP32_PACKAGE = "$ARDUINO15_PATH\packages\esp32"

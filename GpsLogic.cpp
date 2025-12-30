@@ -21,6 +21,7 @@ void setupGPS() {
     
     myGNSS.setI2COutput(COM_TYPE_UBX); 
     myGNSS.setMeasurementRate(gpsData.gpsInterval);
+    myGNSS.setAutoNAVSAT(true);
   }
 }
 
@@ -42,7 +43,7 @@ void pollGPS() {
     Serial.println(lastInterval);
   }
 
-  myGNSS.checkUblox(); 
+  while(myGNSS.checkUblox()); 
   myGNSS.checkCallbacks();
 
   // If LED Mode is Blink on Read
@@ -51,11 +52,18 @@ void pollGPS() {
   long lat = myGNSS.getLatitude();
   long lon = myGNSS.getLongitude();
   long alt = myGNSS.getAltitude();
+  long altMSL = myGNSS.getAltitudeMSL();
   byte sats = myGNSS.getSIV();
   byte fixType = myGNSS.getFixType();
   bool gnssFixOk = myGNSS.getGnssFixOk();
 
   gpsData.satellites = sats;
+
+  if (myGNSS.getDOP()){
+    gpsData.pdop = myGNSS.getPositionDOP() / 100.0;
+    gpsData.hdop = myGNSS.getHorizontalDOP() / 100.0;
+    gpsData.vdop = myGNSS.getVerticalDOP() / 100.0;
+  }
   
   // Get Visible Satellites (from NAV SAT)
   if (myGNSS.getNAVSAT()) {
@@ -91,6 +99,7 @@ void pollGPS() {
     gpsData.lat = lat / 10000000.0;
     gpsData.lon = lon / 10000000.0;
     gpsData.alt = alt / 1000.0;
+    gpsData.altMSL = altMSL / 1000.0;
 
     if (gpsData.ledMode == LED_BLINK_ON_MOVEMENT) {
       if (abs(gpsData.lat - gpsData.lastLat) > gpsData.movementThreshold || 
@@ -106,12 +115,6 @@ void pollGPS() {
     
     gpsData.hAcc = myGNSS.getHorizontalAccEst() / 1000.0;
     gpsData.vAcc = myGNSS.getVerticalAccEst() / 1000.0;
-  }
-
-  if (myGNSS.getDOP()){
-    gpsData.pdop = myGNSS.getPositionDOP() / 100.0;
-    gpsData.hdop = myGNSS.getHorizontalDOP() / 100.0;
-    gpsData.vdop = myGNSS.getVerticalDOP() / 100.0;
   }
 
   if (myGNSS.getTimeValid()) {
