@@ -7,5 +7,7 @@
 // Declare externs so other files can use them
 extern GPSData gpsData;
 extern SFE_UBLOX_GNSS myGNSS;
+class Storage; // Forward declaration
+extern Storage storage;
 
 #endif

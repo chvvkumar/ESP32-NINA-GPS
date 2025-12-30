@@ -21,6 +21,7 @@
 #include "GpsLogic.h"
 #include "WebServer.h"
 #include "TcpServer.h"
+#include "Storage.h"
 
 // Define Global Instances
 SFE_UBLOX_GNSS myGNSS;
@@ -29,6 +30,9 @@ GPSData gpsData;
 void setup() {
   Serial.begin(115200);
   
+  // Storage Init (Load Saved Stats)
+  storage.begin();
+
   // Hardware Init
   initLed();
   gpsData.startTime = millis();

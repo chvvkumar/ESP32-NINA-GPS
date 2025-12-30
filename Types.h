@@ -57,6 +57,18 @@ struct GPSData {
   
   bool ledState = false; 
   bool configSaved = false;
+
+  // Min/Max Statistics
+  double altMin = 99999.0;
+  double altMax = -99999.0;
+  float speedMax = 0.0;
+  int satellitesMax = 0;
+  int satellitesVisibleMax = 0;
+  float pdopMin = 100.0;
+  float hdopMin = 100.0;
+  float vdopMin = 100.0;
+  float hAccMin = 99999.0;
+  float vAccMin = 99999.0;
 };
 
 #endif

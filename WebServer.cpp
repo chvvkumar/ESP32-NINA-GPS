@@ -9,6 +9,7 @@
 #include "Config.h"
 #include "Context.h"
 #include "LedControl.h" 
+#include "Storage.h"
 
 AsyncWebServer webServer(WEB_PORT);
 
@@ -78,6 +79,10 @@ const char index_html[] PROGMEM = R"rawliteral(
     .stat-box { background: rgba(255,255,255,0.03); padding: 10px; border-radius: 8px; }
     .stat-val { font-size: 1.1rem; font-weight: 500; display: block; }
     .stat-lbl { font-size: 0.7rem; color: var(--text-muted); }
+    .stat-sub { font-size: 0.65rem; color: var(--accent); margin-top: 2px; }
+    .sub-val-row { display: flex; justify-content: center; gap: 10px; margin-top: 5px; font-size: 0.8rem; color: var(--text-muted); }
+    .sub-val-lbl { font-size: 0.7rem; margin-right: 3px; }
+    .sub-val-dat { color: var(--accent); font-family: 'Courier New', monospace; }
 
     /* Forms */
     input, select { width: 100%; background: rgba(0,0,0,0.2); border: 1px solid rgba(255,255,255,0.1); color: white; padding: 10px; border-radius: 8px; margin-top: 5px; }
@@ -86,6 +91,9 @@ const char index_html[] PROGMEM = R"rawliteral(
     .btn-outline { background: transparent; border: 1px solid rgba(255,255,255,0.2); color: white; }
     .btn-danger { background: var(--danger); color: white; }
     .btn:hover { opacity: 0.9; }
+
+    .btn-muted { background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.1); color: var(--text-muted); padding: 8px 12px; font-size: 0.85rem; font-weight: normal; }
+    .btn-muted:hover { background: rgba(255,255,255,0.15); color: white; border-color: rgba(255,255,255,0.3); }
 
     /* WiFi List */
     .wifi-list { margin-top: 10px; max-height: 150px; overflow-y: auto; }
@@ -145,6 +153,10 @@ const char index_html[] PROGMEM = R"rawliteral(
           <div class="coord-item">
             <span class="coord-label">ALTITUDE</span>
             <div class="big-value mono" id="alt">0.0 m</div>
+            <div class="sub-val-row">
+               <span><span class="sub-val-lbl">MIN</span><span class="sub-val-dat" id="altMin">--</span></span>
+               <span><span class="sub-val-lbl">MAX</span><span class="sub-val-dat" id="altMax">--</span></span>
+            </div>
             <button class="copy-btn" onclick="copy('alt', this)">COPY</button>
           </div>
           
@@ -170,16 +182,21 @@ const char index_html[] PROGMEM = R"rawliteral(
             <div class="coord-label">SPEED</div>
             <div class="big-value" id="speed">0.0</div>
             <div class="unit">m/s</div>
+            <div class="sub-val-row">
+               <span><span class="sub-val-lbl">MAX</span><span class="sub-val-dat" id="speedMax">--</span></span>
+            </div>
           </div>
         </div>
         <div class="stats-grid" style="margin-top: 1.5rem;">
            <div class="stat-box">
              <span class="stat-val" id="hAcc">0 m</span>
              <span class="stat-lbl">H. Acc</span>
+             <div class="stat-sub">Min: <span id="hAccMin">--</span></div>
            </div>
            <div class="stat-box">
              <span class="stat-val" id="vAcc">0 m</span>
              <span class="stat-lbl">V. Acc</span>
+             <div class="stat-sub">Min: <span id="vAccMin">--</span></div>
            </div>
            <div class="stat-box">
              <span class="stat-val" id="ttff">--</span>
@@ -197,10 +214,12 @@ const char index_html[] PROGMEM = R"rawliteral(
           <div class="stat-box">
             <span class="stat-val" id="satsUsed">--</span>
             <span class="stat-lbl">Used Sats</span>
+            <div class="stat-sub">Max: <span id="satsMax">--</span></div>
           </div>
           <div class="stat-box">
             <span class="stat-val" id="satsVisible">--</span>
             <span class="stat-lbl">Visible Sats</span>
+            <div class="stat-sub">Max: <span id="satsVisibleMax">--</span></div>
           </div>
           <div class="stat-box">
             <span class="stat-val" id="uptime">--</span>
@@ -213,14 +232,17 @@ const char index_html[] PROGMEM = R"rawliteral(
           <div class="stat-box">
             <span class="stat-val" id="pdop">--</span>
             <span class="stat-lbl">PDOP</span>
+            <div class="stat-sub">Min: <span id="pdopMin">--</span></div>
           </div>
           <div class="stat-box">
             <span class="stat-val" id="hdop">--</span>
             <span class="stat-lbl">HDOP</span>
+            <div class="stat-sub">Min: <span id="hdopMin">--</span></div>
           </div>
           <div class="stat-box">
             <span class="stat-val" id="vdop">--</span>
             <span class="stat-lbl">VDOP</span>
+            <div class="stat-sub">Min: <span id="vdopMin">--</span></div>
           </div>
         </div>
         
@@ -275,12 +297,20 @@ const char index_html[] PROGMEM = R"rawliteral(
         <div style="margin-top: 1rem;">
           <input type="text" id="ssid" placeholder="Network SSID">
           <input type="password" id="pass" placeholder="Password">
-          <button class="btn btn-primary" id="saveBtn" onclick="saveWifi()">Connect & Save</button>
+          <button class="btn btn-muted" id="saveBtn" style="margin-top: 10px; width: 100%;" onclick="saveWifi()">Connect & Save</button>
         </div>
-        <div style="margin-top: 1rem; border-top: 1px solid rgba(255,255,255,0.1); padding-top: 1rem; display: flex; gap: 10px;">
-            <button class="btn btn-outline" onclick="location.href='/update'">OTA Firmware Update</button>
-            <button class="btn btn-danger" onclick="rebootEsp()">Reboot System</button>
+      </div>
+
+      <div class="card">
+        <div class="card-title">System Settings</div>
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 15px;">
+             <button class="btn btn-muted" onclick="clearRam()">Clear RAM Stats</button>
+             <button class="btn btn-muted" onclick="clearStorage()">Clear Flash Storage</button>
         </div>
+        <div style="margin-bottom: 15px;">
+             <button class="btn btn-muted" style="width: 100%;" onclick="location.href='/update'">OTA Firmware Update</button>
+        </div>
+        <button class="btn btn-muted" style="width: 100%; border-color: rgba(213, 0, 0, 0.4); color: rgba(255, 100, 100, 0.8);" onclick="rebootEsp()">Reboot System</button>
       </div>
     </div>
   </div>
@@ -308,6 +338,20 @@ const char index_html[] PROGMEM = R"rawliteral(
           }
         });
         
+        // Min/Max updates
+        if(d.altMin < 90000) document.getElementById('altMin').textContent = d.altMin.toFixed(2);
+        if(d.altMax > -90000) document.getElementById('altMax').textContent = d.altMax.toFixed(2);
+        document.getElementById('speedMax').textContent = d.speedMax.toFixed(2);
+        document.getElementById('satsMax').textContent = d.satsMax;
+        document.getElementById('satsVisibleMax').textContent = d.satsVisibleMax;
+        
+        if(d.pdopMin < 100) document.getElementById('pdopMin').textContent = d.pdopMin.toFixed(2);
+        if(d.hdopMin < 100) document.getElementById('hdopMin').textContent = d.hdopMin.toFixed(2);
+        if(d.vdopMin < 100) document.getElementById('vdopMin').textContent = d.vdopMin.toFixed(2);
+
+        if(d.hAccMin < 90000) document.getElementById('hAccMin').textContent = d.hAccMin.toFixed(1) + ' m';
+        if(d.vAccMin < 90000) document.getElementById('vAccMin').textContent = d.vAccMin.toFixed(1) + ' m';
+
         document.getElementById('ttff').textContent = d.ttff >= 0 ? d.ttff + 's' : '--';
         document.getElementById('satsUsed').textContent = d.sats;
         document.getElementById('satsVisible').textContent = d.satsVisible;
@@ -421,6 +465,30 @@ const char index_html[] PROGMEM = R"rawliteral(
         btn.textContent = "Saving...";
         fetch(`/api/save_wifi?ssid=${encodeURIComponent(s)}&pass=${encodeURIComponent(p)}`)
         .then(r => { alert("Saved. Rebooting..."); location.reload(); });
+    }
+
+    function clearRam() {
+        if(confirm("Reset current session statistics (RAM)? This will restart tracking from now.")) {
+            fetch('/api/clear_ram').then(r => {
+                 resetDisplay();
+            });
+        }
+    }
+    
+    function clearStorage() {
+        if(confirm("Erase all saved statistics from Flash memory?")) {
+            fetch('/api/clear_storage').then(r => {
+                 alert("Storage cleared. Reboot to see effect or Clear RAM to reset display.");
+            });
+        }
+    }
+    
+    function resetDisplay() {
+         ['altMin','altMax','speedMax','satsMax','satsVisibleMax','pdopMin','hdopMin','vdopMin','hAccMin','vAccMin']
+         .forEach(id => {
+             const el = document.getElementById(id);
+             if(el) el.textContent = "--";
+         });
     }
 
     function rebootEsp() {
@@ -617,10 +685,24 @@ void setupWeb() {
     doc["lat"] = gpsData.lat;
     doc["lon"] = gpsData.lon;
     doc["alt"] = gpsData.alt;
+    doc["altMin"] = gpsData.altMin;
+    doc["altMax"] = gpsData.altMax;
+    
     doc["speed"] = gpsData.speed;
+    doc["speedMax"] = gpsData.speedMax;
+    
     doc["heading"] = gpsData.heading;
     doc["hAcc"] = gpsData.hAcc;
     doc["vAcc"] = gpsData.vAcc;
+    doc["hAccMin"] = gpsData.hAccMin;
+    doc["vAccMin"] = gpsData.vAccMin;
+    
+    doc["satsMax"] = gpsData.satellitesMax;
+    doc["satsVisibleMax"] = gpsData.satellitesVisibleMax;
+    doc["pdopMin"] = gpsData.pdopMin;
+    doc["hdopMin"] = gpsData.hdopMin;
+    doc["vdopMin"] = gpsData.vdopMin;
+
     doc["ledMode"] = (int)gpsData.ledMode;
     doc["ledBlinkMs"] = LED_BLINK_DURATION_MS;
     doc["rate"] = gpsData.gpsInterval;
@@ -683,6 +765,16 @@ void setupWeb() {
     request->send(200, "text/plain", "Rebooting...");
     delay(1000);
     ESP.restart();
+  });
+
+  webServer.on("/api/clear_ram", HTTP_GET, [](AsyncWebServerRequest *request){
+    storage.clearSession();
+    request->send(200, "text/plain", "OK");
+  });
+
+  webServer.on("/api/clear_storage", HTTP_GET, [](AsyncWebServerRequest *request){
+    storage.clearStorage();
+    request->send(200, "text/plain", "OK");
   });
 
   webServer.on("/api/save_wifi", HTTP_GET, [](AsyncWebServerRequest *request){

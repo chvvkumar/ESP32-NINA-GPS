@@ -98,19 +98,36 @@ if ($ARDUINO_CLI) {
         
         # Try to find the size tool for ESP32
         $SIZE_TOOL = $null
-        $ESP32_VERSIONS = Get-ChildItem "$ESP32_PACKAGE\hardware\esp32" -Directory -ErrorAction SilentlyContinue | Sort-Object Name -Descending
-        foreach ($version in $ESP32_VERSIONS) {
-            # ESP32 uses xtensa compiler
-            $COMPILER_SEARCH = Get-ChildItem "$ESP32_PACKAGE\tools\xtensa-esp32-elf-gcc" -Directory -ErrorAction SilentlyContinue | Sort-Object Name -Descending | Select-Object -First 1
-            if ($COMPILER_SEARCH) {
-                $SIZE_TOOL = Join-Path $COMPILER_SEARCH.FullName "bin\xtensa-esp32-elf-size.exe"
-                if (Test-Path $SIZE_TOOL) {
-                    break
+        
+        # Determine correct size executable based on chip type
+        $SIZE_EXE_NAME = switch ($CHIP) {
+            "esp32s3" { "xtensa-esp32s3-elf-size.exe" }
+            "esp32s2" { "xtensa-esp32s2-elf-size.exe" }
+            "esp32c3" { "riscv32-esp-elf-size.exe" }
+            default   { "xtensa-esp32-elf-size.exe" }
+        }
+        
+        # Modern ESP32 package uses unified toolchain directories (esp-x32 or esp-rv32)
+        # Try esp-x32 first (for xtensa chips like ESP32, ESP32-S2, ESP32-S3)
+        $TOOLCHAIN_DIRS = @("esp-x32", "esp-rv32")
+        
+        foreach ($toolchainDir in $TOOLCHAIN_DIRS) {
+            $toolchainPath = "$ESP32_PACKAGE\tools\$toolchainDir"
+            if (Test-Path $toolchainPath) {
+                # Get the latest version
+                $version = Get-ChildItem $toolchainPath -Directory -ErrorAction SilentlyContinue | Sort-Object Name -Descending | Select-Object -First 1
+                if ($version) {
+                    $testPath = Join-Path $version.FullName "bin\$SIZE_EXE_NAME"
+                    if (Test-Path $testPath) {
+                        $SIZE_TOOL = $testPath
+                        break
+                    }
                 }
             }
         }
         
         if ($SIZE_TOOL -and (Test-Path $SIZE_TOOL)) {
+            Write-Host "" # Empty line before size output
             & $SIZE_TOOL -A $ELF_FILE
         } else {
             Write-Host "      (Size tool not found - skipping memory details)" -ForegroundColor Gray

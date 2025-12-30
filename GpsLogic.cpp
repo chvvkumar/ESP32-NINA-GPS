@@ -4,6 +4,7 @@
 #include "Config.h"
 #include "Context.h"
 #include "LedControl.h"
+#include "Storage.h"
 
 void setupGPS() {
   Wire.begin(I2C_SDA, I2C_SCL);
@@ -58,16 +59,19 @@ void pollGPS() {
   bool gnssFixOk = myGNSS.getGnssFixOk();
 
   gpsData.satellites = sats;
+  storage.updateSats(sats);
 
   if (myGNSS.getDOP()){
     gpsData.pdop = myGNSS.getPositionDOP() / 100.0;
     gpsData.hdop = myGNSS.getHorizontalDOP() / 100.0;
     gpsData.vdop = myGNSS.getVerticalDOP() / 100.0;
+    storage.updateDOP(gpsData.pdop, gpsData.hdop, gpsData.vdop);
   }
   
   // Get Visible Satellites (from NAV SAT)
   if (myGNSS.getNAVSAT()) {
     gpsData.satellitesVisible = myGNSS.packetUBXNAVSAT->data.header.numSvs;
+    storage.updateVisibleSats(gpsData.satellitesVisible);
   }
 
   gpsData.fixType = fixType;
@@ -100,6 +104,8 @@ void pollGPS() {
     gpsData.lon = lon / 10000000.0;
     gpsData.alt = alt / 1000.0;
     gpsData.altMSL = altMSL / 1000.0;
+    
+    storage.updateAlt(gpsData.alt);
 
     if (gpsData.ledMode == LED_BLINK_ON_MOVEMENT) {
       if (abs(gpsData.lat - gpsData.lastLat) > gpsData.movementThreshold || 
@@ -111,10 +117,13 @@ void pollGPS() {
     gpsData.lastLon = gpsData.lon;
 
     gpsData.speed = myGNSS.getGroundSpeed() / 1000.0;
+    storage.updateSpeed(gpsData.speed);
+    
     gpsData.heading = myGNSS.getHeading() / 100000.0; 
     
     gpsData.hAcc = myGNSS.getHorizontalAccEst() / 1000.0;
     gpsData.vAcc = myGNSS.getVerticalAccEst() / 1000.0;
+    storage.updateAcc(gpsData.hAcc, gpsData.vAcc);
   }
 
   if (myGNSS.getTimeValid()) {
