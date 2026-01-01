@@ -69,6 +69,7 @@ void loop() {
   if (gpsData.gpsInterval > 0 && (millis() - gpsData.lastGPSPoll >= gpsData.gpsInterval)) {
     gpsData.lastGPSPoll = millis();
     pollGPS();
+    gpsData.cpuTemp = temperatureRead();
     shouldBroadcast = true;
   }
   

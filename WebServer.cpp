@@ -279,6 +279,10 @@ const char index_html[] PROGMEM = R"rawliteral(
                   <span class="info-label">NINA TCP PORT</span>
                   <span class="info-val" id="tcpPort">--</span>
               </div>
+              <div class="info-row">
+                  <span class="info-label">CPU TEMP</span>
+                  <span class="info-val" id="cpuTemp">--</span>
+              </div>
            </div>
         </div>
       </div>
@@ -359,6 +363,7 @@ const char index_html[] PROGMEM = R"rawliteral(
         document.getElementById('stIp').textContent = d.stationIp;
         document.getElementById('apIp').textContent = d.apIp;
         document.getElementById('tcpPort').textContent = d.tcpPort;
+        if(d.cpuTemp !== undefined) document.getElementById('cpuTemp').innerHTML = d.cpuTemp.toFixed(1) + '&deg;C';
         
         document.getElementById('heading').innerHTML = Math.round(d.heading) + '&deg;';
         document.getElementById('compassNeedle').style.transform = `rotate(${d.heading}deg)`;
@@ -672,6 +677,7 @@ void setupWeb() {
     doc["stationIp"] = WiFi.localIP().toString();
     doc["apIp"] = WiFi.softAPIP().toString();
     doc["tcpPort"] = TCP_PORT;
+    doc["cpuTemp"] = gpsData.cpuTemp;
     doc["connected"] = gpsData.isConnected;
     doc["fixStatus"] = gpsData.fixStatus;
     doc["sats"] = gpsData.satellites;

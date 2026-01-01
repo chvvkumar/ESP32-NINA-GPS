@@ -58,6 +58,8 @@ struct GPSData {
   bool ledState = false; 
   bool configSaved = false;
 
+  float cpuTemp = 0.0;
+
   // Min/Max Statistics
   double altMin = 99999.0;
   double altMax = -99999.0;

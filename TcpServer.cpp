@@ -14,6 +14,7 @@ struct ClientContext {
 std::vector<ClientContext> clients;
 SemaphoreHandle_t clientsMutex = NULL;
 volatile bool newClientConnected = false;
+volatile bool pendingBroadcast = false;
 
 // --- Helper Functions Local to this file ---
 String getChecksum(String content) {
@@ -35,6 +36,31 @@ String toNMEA(double deg, bool isLon) {
   return String(buf);
 }
 
+String generateTPV() {
+  if (!gpsData.hasFix) return "";
+
+  int mode = 1; // Default No Fix
+  if (gpsData.fixType == 2) mode = 2; // 2D
+  if (gpsData.fixType == 3) mode = 3; // 3D
+
+  String tpv = "{\"class\":\"TPV\",\"device\":\"/dev/i2c\"";
+  tpv += ",\"status\":1"; 
+  tpv += ",\"mode\":" + String(mode);
+  tpv += ",\"time\":\"" + gpsData.dateStr + "T" + gpsData.timeStr + "Z\"";
+  tpv += ",\"lat\":" + String(gpsData.lat, 7);
+  tpv += ",\"lon\":" + String(gpsData.lon, 7);
+  tpv += ",\"alt\":" + String(gpsData.alt, 3);
+  tpv += ",\"altHAE\":" + String(gpsData.alt, 3);
+  tpv += ",\"altMSL\":" + String(gpsData.altMSL, 3);
+  tpv += ",\"speed\":" + String(gpsData.speed, 3);
+  tpv += ",\"track\":" + String(gpsData.heading, 2);
+  tpv += ",\"epx\":" + String(gpsData.hAcc, 2);
+  tpv += ",\"epy\":" + String(gpsData.hAcc, 2);
+  tpv += ",\"epv\":" + String(gpsData.vAcc, 2); 
+  tpv += "}\n";
+  return tpv;
+}
+
 static void handleClientData(void* arg, AsyncClient* client, void* data, size_t len) {
   String cmd = String((char*)data).substring(0, len);
   if (cmd.indexOf("?WATCH") != -1) {
@@ -45,6 +71,12 @@ static void handleClientData(void* arg, AsyncClient* client, void* data, size_t 
           String ack = "{\"class\":\"VERSION\",\"release\":\"3.23\",\"rev\":\"ESP32\",\"proto_major\":3,\"proto_minor\":14}\\n";
           ack += "{\"class\":\"DEVICES\",\"devices\":[{\"class\":\"DEVICE\",\"path\":\"/dev/i2c\",\"driver\":\"u-blox\",\"activated\":\"" + gpsData.dateStr + "T" + gpsData.timeStr + "Z\"}]}\\n";
           ack += "{\"class\":\"WATCH\",\"enable\":true,\"json\":true}\\n";
+          
+          // IMMEDIATE UPDATE: Send current TPV if valid
+          if (gpsData.hasFix) {
+             ack += generateTPV();
+          }
+
           client->write(ack.c_str());
           break;
         }
@@ -132,24 +164,7 @@ void broadcastData() {
   String gsaFull = "$" + gsa + "*" + getChecksum(gsa) + "\r\n";
 
   // --- PREPARE GPSD JSON ---
-  String tpv = "";
-  if (gpsData.hasFix) {
-    tpv = "{\"class\":\"TPV\",\"device\":\"/dev/i2c\"";
-    tpv += ",\"status\":1"; 
-    tpv += ",\"mode\":" + String(mode);
-    tpv += ",\"time\":\"" + gpsData.dateStr + "T" + gpsData.timeStr + "Z\"";
-    tpv += ",\"lat\":" + String(gpsData.lat, 7);
-    tpv += ",\"lon\":" + String(gpsData.lon, 7);
-    tpv += ",\"alt\":" + String(gpsData.alt, 3);
-    tpv += ",\"altHAE\":" + String(gpsData.alt, 3);
-    tpv += ",\"altMSL\":" + String(gpsData.altMSL, 3);
-    tpv += ",\"speed\":" + String(gpsData.speed, 3);
-    tpv += ",\"track\":" + String(gpsData.heading, 2);
-    tpv += ",\"epx\":" + String(gpsData.hAcc, 2);
-    tpv += ",\"epy\":" + String(gpsData.hAcc, 2);
-    tpv += ",\"epv\":" + String(gpsData.vAcc, 2); 
-    tpv += "}\n";
-  }
+  String tpv = generateTPV();
 
   if (xSemaphoreTake(clientsMutex, portMAX_DELAY)) {
     for (auto& ctx : clients) {
