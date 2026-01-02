@@ -66,6 +66,8 @@ Select your board in Arduino IDE/PlatformIO and upload `ESP32-NINA-GPS.ino`.
 
 ### 2. Receiver (ESPHome)
 
+![Receiver Device](Receiver/Receiver.jpg)
+
 A complete ESPHome configuration is provided in the `Receiver/` directory.
 
 1.  Install [ESPHome](https://esphome.io/).
