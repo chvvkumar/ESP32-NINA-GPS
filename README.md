@@ -1,6 +1,6 @@
 # ESP32 GPS Broadcast & Web Server
 
-A robust ESP32 firmware that bridges high-precision GNSS data to the network and other devices. It reads from a u-blox module, serves data via TCP (NetGPS) and a Web Dashboard, and broadcasts real-time telemetry via ESP-NOW to remote displays.
+A robust ESP32 firmware that bridges GNSS data to the network and other devices. It reads from a u-blox module, serves data via TCP (NetGPS) and a Web Dashboard, and broadcasts real-time telemetry via ESP-NOW to remote displays.
 
 ![Dashboard](/images/dashboard.png)
 
