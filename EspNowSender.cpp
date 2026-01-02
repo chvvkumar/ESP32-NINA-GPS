@@ -1,0 +1,101 @@
+#include <Arduino.h>
+#include <esp_now.h>
+#include <WiFi.h>
+#include "EspNowSender.h"
+#include "Context.h" // To access global gpsData
+
+// ESP-NOW Direct Point-to-Point Configuration
+// REPLACE WITH YOUR ESPHOME RECEIVER MAC ADDRESS (get from ESPHome device)
+// Example: {0x34, 0x85, 0x18, 0x7B, 0x56, 0x24}
+// To find MAC: check ESPHome logs or web_server interface
+static uint8_t receiverMac[] = {0xCC, 0xBA, 0x97, 0xF3, 0xC7, 0x28}; 
+
+// Define the struct matching the receiver
+typedef struct __attribute__((packed)) {
+  double lat;
+  double lon;
+  float alt;
+  float speed;
+  float heading;
+  uint8_t sats;
+  uint8_t satsVisible;
+  uint8_t fixType;
+  char localTime[10];
+} GpsEspNowPacket;
+
+// Callback when data is sent
+void OnDataSent(const wifi_tx_info_t *info, esp_now_send_status_t status) {
+  if (status == ESP_NOW_SEND_SUCCESS) {
+    gpsData.espNowStatus = "Active (Sent)";
+    gpsData.espNowError = ""; // Clear error
+  } else {
+    gpsData.espNowStatus = "Delivery Failed";
+    gpsData.espNowError = "Packet delivery failed";
+  }
+}
+
+void setupEspNow() {
+  // ESP-NOW works independently of WiFi connection
+  // It can operate even when WiFi is connected to a router (WIFI_AP_STA mode)
+  // No need to change WiFi mode - ESP-NOW uses the WiFi radio directly
+  
+  // Print sender's MAC address for receiver configuration
+  Serial.print("ESP-NOW Sender MAC: ");
+  Serial.println(WiFi.macAddress());
+  Serial.print("Receiver MAC configured as: ");
+  for (int i = 0; i < 6; i++) {
+    Serial.printf("%02X", receiverMac[i]);
+    if (i < 5) Serial.print(":");
+  }
+  Serial.println();
+
+  if (esp_now_init() != ESP_OK) {
+    Serial.println("Error initializing ESP-NOW");
+    gpsData.espNowStatus = "Init Failed";
+    gpsData.espNowError = "esp_now_init failed";
+    return;
+  }
+
+  // Register Send Callback
+  esp_now_register_send_cb(OnDataSent);
+
+  // Register receiver as peer for direct point-to-point communication
+  esp_now_peer_info_t peerInfo;
+  memset(&peerInfo, 0, sizeof(peerInfo));
+  memcpy(peerInfo.peer_addr, receiverMac, 6);
+  peerInfo.channel = 0;  // 0 = use current WiFi channel (works with AP_STA mode)
+  peerInfo.encrypt = false; // No encryption (can be enabled with a shared key)
+
+  if (esp_now_add_peer(&peerInfo) != ESP_OK) {
+    Serial.println("Failed to add peer");
+    gpsData.espNowStatus = "Peer Error";
+    gpsData.espNowError = "Failed to add peer";
+  } else {
+    Serial.println("ESP-NOW peer registered successfully");
+    gpsData.espNowStatus = "Ready";
+  }
+}
+
+void sendGpsDataViaEspNow() {
+  if (!gpsData.hasFix) return; // Optional: Only send if we have a fix
+
+  GpsEspNowPacket packet;
+  packet.lat = gpsData.lat;
+  packet.lon = gpsData.lon;
+  packet.alt = (float)gpsData.alt;
+  packet.speed = gpsData.speed;
+  packet.heading = gpsData.heading;
+  packet.sats = (uint8_t)gpsData.satellites;
+  packet.satsVisible = (uint8_t)gpsData.satellitesVisible;
+  packet.fixType = gpsData.fixType;
+  strncpy(packet.localTime, gpsData.localTimeStr.c_str(), sizeof(packet.localTime));
+
+  esp_err_t result = esp_now_send(receiverMac, (uint8_t *) &packet, sizeof(packet));
+  
+  if (result == ESP_OK) {
+      gpsData.espNowLastTxTime = millis();
+  } else {
+      gpsData.espNowStatus = "Send Error";
+      gpsData.espNowError = "esp_now_send returned error";
+  }
+}

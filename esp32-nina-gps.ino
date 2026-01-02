@@ -22,6 +22,7 @@
 #include "WebServer.h"
 #include "TcpServer.h"
 #include "Storage.h"
+#include "EspNowSender.h"
 
 // Define Global Instances
 SFE_UBLOX_GNSS myGNSS;
@@ -60,6 +61,7 @@ void setup() {
   
   setupWeb();
   setupTCP();
+  setupEspNow();
 }
 
 void loop() {
@@ -70,6 +72,7 @@ void loop() {
     gpsData.lastGPSPoll = millis();
     pollGPS();
     gpsData.cpuTemp = temperatureRead();
+    sendGpsDataViaEspNow();
     shouldBroadcast = true;
   }
   

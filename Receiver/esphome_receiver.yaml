@@ -1,0 +1,620 @@
+# Enable Home Assistant API
+api:
+  encryption:
+    key: "YOUR_API_ENCRYPTION_KEY"
+
+ota:
+  - platform: esphome
+    password: "YOUR_OTA_PASSWORD"
+
+wifi:
+  ssid: YOUR_WIFI_SSID
+  password: YOUR_WIFI_PASSWORD
+  power_save_mode: none
+  ap:
+    ssid: "ESP32C6-LCD Fallback"
+    password: "YOUR_AP_PASSWORD"
+
+captive_portal:
+
+web_server:
+  port: 80
+  version: 3
+  include_internal: true
+
+substitutions:
+  id: esp32c6_lcd
+
+esp32:
+  board: esp32-c6-devkitc-1
+  variant: esp32c6
+  flash_size: 4MB
+  framework:
+    type: esp-idf
+    version: recommended
+    sdkconfig_options:
+      CONFIG_ESPTOOLPY_FLASHSIZE_DETECT: y
+      CONFIG_ESPTOOLPY_FLASHSIZE_4MB: y
+      CONFIG_OPENTHREAD_ENABLED: n
+      CONFIG_USE_MINIMAL_MDNS: y
+      CONFIG_ESP_WIFI_ESPNOW_MAX_ENCRYPT_NUM: "7"
+      COMPILER_OPTIMIZATION_SIZE: y
+      COMPILER_OPTIMIZATION_LEVEL_RELEASE: y
+      CONFIG_COMPILER_OPTIMIZATION_ASSERTIONS_DISABLE: y
+      CONFIG_HEAP_POISONING_DISABLED: y
+
+esphome:
+  friendly_name: "ESP32-C6 1.47 LCD"
+  name: esp32c6-lcd
+  name_add_mac_suffix: false
+  project:
+    name: "Waveshare.ESP32-C6-LCD-1-47in"
+    version: "1.0"
+  platformio_options:
+    # Ensures enough Flash space for LVGL, place in espnpw build folder
+    board_build.partitions: huge_app.csv
+    board_build.flash_mode: dio
+    build_flags:
+      - "-DI2C_NUM_1=I2C_NUM_0"
+      - "-DBOARD_HAS_PSRAM"
+      - "-Wl,-Map,output.map"
+    board_build.arduino.memory_type: qio_opi
+  
+  on_boot:
+    priority: 600
+    then:
+      - delay: 1s
+      - light.turn_on:
+          id: esp32c6_lcd_led
+          brightness: !lambda "return id(idle_brightness).state / 100.0;"
+          red: !lambda "return id(idle_red).state / 255.0;"
+          green: !lambda "return id(idle_green).state / 255.0;"
+          blue: !lambda "return id(idle_blue).state / 255.0;"
+
+logger:
+
+spi:
+  clk_pin: GPIO7
+  miso_pin: GPIO5
+  mosi_pin: GPIO6
+
+# RGB LED on GPIO8
+light:
+  - platform: esp32_rmt_led_strip
+    id: "${id}_led"
+    name: "Onboard LED"
+    rgb_order: RGB
+    pin: 
+      number: GPIO8
+      ignore_strapping_warning: true
+    num_leds: 1
+    chipset: SK6812
+    internal: true
+    default_transition_length: 10ms
+
+output:
+  - platform: ledc
+    pin: GPIO22
+    id: lcd_backlight
+    frequency: 1000 Hz
+
+button:
+  - platform: restart
+    name: "Reboot"
+    internal: true
+
+# =========================================================================
+#  ESP-NOW CONFIGURATION
+# =========================================================================
+espnow:
+  auto_add_peer: true
+  peers:
+    - "XX:XX:XX:XX:XX:XX" 
+  
+  on_receive:
+    - lambda: |-
+        struct __attribute__((packed)) GpsEspNowPacket {
+          double lat;
+          double lon;
+          float alt;
+          float speed;
+          float heading;
+          uint8_t sats;
+          uint8_t satsVisible;
+          uint8_t fixType;
+          char localTime[10];
+        };
+
+        if (size != sizeof(GpsEspNowPacket)) return;
+
+        // FIX 1: Use memcpy to avoid unaligned memory access crashes/corruption
+        // Creating a local copy ensures the 'double' variables are aligned correctly in memory.
+        GpsEspNowPacket packet;
+        memcpy(&packet, data, sizeof(GpsEspNowPacket));
+
+        // 1. Publish to Home Assistant Sensors
+        id(gps_lat).publish_state(packet.lat);
+        id(gps_lon).publish_state(packet.lon);
+        id(gps_alt).publish_state(packet.alt);
+        id(gps_speed).publish_state(packet.speed);
+        id(gps_heading).publish_state(packet.heading);
+        id(gps_sats).publish_state(packet.sats);
+        id(gps_sats_visible).publish_state(packet.satsVisible);
+        id(gps_local_time).publish_state(packet.localTime);
+
+        // 2. Determine Fix Status String
+        std::string status = "Unknown";
+        if (packet.fixType == 0) status = "No Fix";
+        else if (packet.fixType == 1) status = "Dead Reckoning";
+        else if (packet.fixType == 2) status = "2D Fix";
+        else if (packet.fixType == 3) status = "3D Fix";
+        id(gps_fix_status).publish_state(status);
+        
+        // 3. Update LVGL Display Widgets
+        // FIX 2: Use snprintf for float-to-string conversion (works on ESP-IDF)
+        char final_buf[64];
+
+        // Latitude (5 decimal places)
+        snprintf(final_buf, sizeof(final_buf), "%.4f", packet.lat);
+        lv_label_set_text(id(lat_value), final_buf);
+
+        // Longitude (5 decimal places)
+        snprintf(final_buf, sizeof(final_buf), "%.4f", packet.lon);
+        lv_label_set_text(id(lon_value), final_buf);
+
+        // Altitude (1 decimal place)
+        snprintf(final_buf, sizeof(final_buf), "%.0f m", packet.alt);
+        lv_label_set_text(id(alt_value), final_buf);
+
+        // Standard strings
+        lv_label_set_text(id(lbl_time), packet.localTime);
+        lv_bar_set_value(id(lbl_sats), packet.sats, LV_ANIM_OFF);
+        lv_label_set_text(id(lbl_status), status.c_str());
+
+        // 5. Trigger LED Alert
+        id(espnow_blink_alert).execute();
+
+# =========================================================================
+#  SENSORS
+# =========================================================================
+sensor:
+  - platform: homeassistant
+    id: outdoor_temp
+    entity_id: sensor.outdoor_temperature
+    internal: true
+
+  - platform: template
+    id: gps_lat
+    name: "GPS Latitude"
+    accuracy_decimals: 7
+    internal: true
+
+  - platform: template
+    id: gps_lon
+    name: "GPS Longitude"
+    accuracy_decimals: 7
+    internal: true
+
+  - platform: template
+    id: gps_alt
+    name: "GPS Altitude"
+    unit_of_measurement: "m"
+    accuracy_decimals: 1
+    internal: true
+
+  - platform: template
+    id: gps_speed
+    name: "GPS Speed"
+    unit_of_measurement: "m/s"
+    accuracy_decimals: 1
+    internal: true
+
+  - platform: template
+    id: gps_heading
+    name: "GPS Heading"
+    unit_of_measurement: "°"
+    accuracy_decimals: 0
+    internal: true
+
+  - platform: template
+    id: gps_sats
+    name: "GPS Satellites"
+    accuracy_decimals: 0
+    internal: true
+
+  - platform: template
+    id: gps_sats_visible
+    name: "GPS Satellites Visible"
+    accuracy_decimals: 0
+    internal: true
+
+  - platform: wifi_signal
+    name: "WiFi Signal"
+    internal: true
+    
+
+text_sensor:
+  - platform: wifi_info
+    mac_address:
+      name: "ESP MAC Address"
+
+  - platform: template
+    id: gps_local_time
+    name: "GPS Local Time"
+    internal: true
+
+  - platform: template
+    id: gps_fix_status
+    name: "GPS Fix Status"
+    internal: true
+
+number:
+  - platform: template
+    name: "Display Brightness"
+    id: display_brightness
+    optimistic: true
+    min_value: 0
+    max_value: 100
+    step: 1
+    initial_value: 100
+    restore_value: true
+    mode: slider
+    internal: true
+    on_value:
+      then:
+        - output.set_level:
+            id: lcd_backlight
+            level: !lambda "return x / 100.0;"
+
+  # --- Alert Config ---
+  - platform: template
+    name: "Alert Brightness"
+    id: blink_brightness
+    optimistic: true
+    min_value: 0
+    max_value: 100
+    step: 1
+    initial_value: 100
+    restore_value: true
+    mode: slider
+    internal: true
+
+  - platform: template
+    name: "Alert Color Red"
+    id: blink_red
+    optimistic: true
+    min_value: 0
+    max_value: 255
+    step: 1
+    initial_value: 0
+    restore_value: true
+    mode: box
+    internal: true
+
+  - platform: template
+    name: "Alert Color Green"
+    id: blink_green
+    optimistic: true
+    min_value: 0
+    max_value: 255
+    step: 1
+    initial_value: 255
+    restore_value: true
+    mode: box
+    internal: true
+
+  - platform: template
+    name: "Alert Color Blue"
+    id: blink_blue
+    optimistic: true
+    min_value: 0
+    max_value: 255
+    step: 1
+    initial_value: 0
+    restore_value: true
+    mode: box
+    internal: true
+
+  - platform: template
+    name: "Alert Duration (ms)"
+    id: blink_duration
+    optimistic: true
+    min_value: 50
+    max_value: 2000
+    step: 10
+    initial_value: 100
+    restore_value: true
+    mode: box
+    internal: true
+
+  # --- Idle Config ---
+  - platform: template
+    name: "Idle Brightness"
+    id: idle_brightness
+    optimistic: true
+    min_value: 0
+    max_value: 100
+    step: 1
+    initial_value: 10
+    restore_value: true
+    mode: slider
+    internal: true
+    on_value:
+      then:
+        - if:
+            condition:
+              not:
+                script.is_running: espnow_blink_alert
+            then:
+              - light.turn_on:
+                  id: esp32c6_lcd_led
+                  brightness: !lambda "return x / 100.0;"
+                  red: !lambda "return id(idle_red).state / 255.0;"
+                  green: !lambda "return id(idle_green).state / 255.0;"
+                  blue: !lambda "return id(idle_blue).state / 255.0;"
+
+  - platform: template
+    name: "Idle Color Red"
+    id: idle_red
+    optimistic: true
+    min_value: 0
+    max_value: 255
+    step: 1
+    initial_value: 255
+    restore_value: true
+    mode: box
+    internal: true
+    on_value:
+      then:
+        - if:
+            condition:
+              not:
+                script.is_running: espnow_blink_alert
+            then:
+              - light.turn_on:
+                  id: esp32c6_lcd_led
+                  brightness: !lambda "return id(idle_brightness).state / 100.0;"
+                  red: !lambda "return x / 255.0;"
+                  green: !lambda "return id(idle_green).state / 255.0;"
+                  blue: !lambda "return id(idle_blue).state / 255.0;"
+
+  - platform: template
+    name: "Idle Color Green"
+    id: idle_green
+    optimistic: true
+    min_value: 0
+    max_value: 255
+    step: 1
+    initial_value: 0
+    restore_value: true
+    mode: box
+    internal: true
+    on_value:
+      then:
+        - if:
+            condition:
+              not:
+                script.is_running: espnow_blink_alert
+            then:
+              - light.turn_on:
+                  id: esp32c6_lcd_led
+                  brightness: !lambda "return id(idle_brightness).state / 100.0;"
+                  red: !lambda "return id(idle_red).state / 255.0;"
+                  green: !lambda "return x / 255.0;"
+                  blue: !lambda "return id(idle_blue).state / 255.0;"
+
+  - platform: template
+    name: "Idle Color Blue"
+    id: idle_blue
+    optimistic: true
+    min_value: 0
+    max_value: 255
+    step: 1
+    initial_value: 0
+    restore_value: true
+    mode: box
+    internal: true
+    on_value:
+      then:
+        - if:
+            condition:
+              not:
+                script.is_running: espnow_blink_alert
+            then:
+              - light.turn_on:
+                  id: esp32c6_lcd_led
+                  brightness: !lambda "return id(idle_brightness).state / 100.0;"
+                  red: !lambda "return id(idle_red).state / 255.0;"
+                  green: !lambda "return id(idle_green).state / 255.0;"
+                  blue: !lambda "return x / 255.0;"
+
+script:
+  - id: espnow_blink_alert
+    mode: restart
+    then:
+      - light.turn_on:
+          id: esp32c6_lcd_led
+          brightness: !lambda "return id(blink_brightness).state / 100.0;"
+          red: !lambda "return id(blink_red).state / 255.0;"
+          green: !lambda "return id(blink_green).state / 255.0;"
+          blue: !lambda "return id(blink_blue).state / 255.0;"
+      
+      - delay: !lambda "return id(blink_duration).state;"
+      
+      - light.turn_on:
+          id: esp32c6_lcd_led
+          brightness: !lambda "return id(idle_brightness).state / 100.0;"
+          red: !lambda "return id(idle_red).state / 255.0;"
+          green: !lambda "return id(idle_green).state / 255.0;"
+          blue: !lambda "return id(idle_blue).state / 255.0;"
+
+select:
+  - platform: template
+    name: "Display Rotation"
+    id: display_rotation
+    options: ["0°", "90°", "180°", "270°"]
+    initial_option: "270°" 
+    optimistic: true
+    restore_value: true
+    internal: true
+    on_value:
+      then:
+        - lambda: |-
+            auto rotation = esphome::display::DISPLAY_ROTATION_270_DEGREES;
+            if (x == "0°") rotation = esphome::display::DISPLAY_ROTATION_0_DEGREES;
+            else if (x == "90°") rotation = esphome::display::DISPLAY_ROTATION_90_DEGREES;
+            else if (x == "180°") rotation = esphome::display::DISPLAY_ROTATION_180_DEGREES;
+            else if (x == "270°") rotation = esphome::display::DISPLAY_ROTATION_270_DEGREES;
+            id(tft_ha).set_rotation(rotation);
+
+# -------------------------------------------------------------------------
+# LVGL CONFIGURATION (V8.x)
+# -------------------------------------------------------------------------
+lvgl:
+  pages:
+    - id: canvas_2
+      bg_color: 0x000000
+      widgets:
+        - label:
+            id: lbl_lat
+            x: 1
+            y: 45
+            height: 40
+            text: "LAT:"
+            text_color: 0xE10522
+            long_mode: DOT
+            text_font: montserrat_36
+
+        - label:
+            id: lat_value
+            x: 155
+            y: 45
+            height: 40
+            text: "00.0000"
+            text_color: 0xE10522
+            text_align: RIGHT
+            long_mode: DOT
+            text_font: montserrat_36
+
+        - label:
+            id: lbl_lon
+            x: -1
+            y: 90
+            height: 40
+            text: "LON:"
+            text_color: 0xE10522
+            long_mode: CLIP
+            text_font: montserrat_36
+
+        - label:
+            id: lon_value
+            x: 140
+            y: 90
+            height: 40
+            text: "-00.0000"
+            text_color: 0xE10522
+            text_align: RIGHT
+            long_mode: CLIP
+            text_font: montserrat_36
+
+        - label:
+            id: lbl_alt
+            x: -1
+            y: 135
+            height: 30
+            text: "ALT:"
+            text_color: 0xE10522
+            long_mode: CLIP
+            text_font: montserrat_28
+
+        - label:
+            id: alt_value
+            x: 211
+            y: 135
+            height: 30
+            text: "000 m"
+            text_color: 0xE10522
+            text_align: RIGHT
+            long_mode: CLIP
+            text_font: montserrat_28
+
+        - label:
+            id: lbl_time
+            x: 87
+            y: 5
+            text: "00:00:00"
+            text_color: 0xE10522
+            text_align: RIGHT
+            long_mode: CLIP
+            text_font: montserrat_28
+
+        - label:
+            id: lbl_status
+            x: 240
+            y: 7
+            height: 30
+            text: "3D Fix"
+            text_color: 0xE10522
+            text_align: RIGHT
+            long_mode: SCROLL
+            text_font: montserrat_20
+
+        - bar:
+            id: lbl_sats
+            x: 0
+            y: 0
+            width: 316
+            height: 5
+            value: 25
+            min_value: 0
+            max_value: 50
+            indicator:
+              bg_color: 0xE10522
+            bg_color: 0x000000
+
+        - line:
+            id: lv_line_18
+            x: 0
+            y: 30
+            width: 320
+            height: 20
+            points:
+              - 5, 10
+              - 315, 10
+            line_color: 0x860415
+            line_rounded: true
+
+  buffer_size: 10%
+  displays:
+    - tft_ha
+
+# -------------------------------------------------------------------------
+# DISPLAY DRIVER
+# -------------------------------------------------------------------------
+display:
+  - platform: st7789v
+    cs_pin: GPIO14
+    dc_pin:
+      number: GPIO15
+      ignore_strapping_warning: true
+    reset_pin: GPIO21
+    model: Waveshare 1.47in 172X320
+    id: tft_ha
+    rotation: 270
+
+# -------------------------------------------------------------------------
+# FONTS
+# -------------------------------------------------------------------------
+font:
+  - file: "gfonts://Roboto"
+    id: font_16
+    size: 16
+    glyphs: "0123456789.-%ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz :°/"
+  - file: "gfonts://Roboto"
+    id: font_20
+    size: 20
+    glyphs: "0123456789.-%ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz :°/"
+  - file: "gfonts://Roboto"
+    id: font_32
+    size: 32
+    glyphs: "0123456789.-%ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz :°/"

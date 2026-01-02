@@ -307,6 +307,16 @@ const char index_html[] PROGMEM = R"rawliteral(
 
       <div class="card">
         <div class="card-title">System Settings</div>
+        
+        <div class="info-row" style="margin-bottom: 10px; border-bottom: none;">
+             <span class="info-label">ESP-NOW STATUS</span>
+             <span class="info-val" id="enStatus">--</span>
+        </div>
+        <div class="info-row" style="margin-bottom: 15px;">
+             <span class="info-label">LAST ERROR</span>
+             <span class="info-val" id="enError" style="color: var(--danger);">--</span>
+        </div>
+
         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 15px;">
              <button class="btn btn-muted" onclick="clearRam()">Clear RAM Stats</button>
              <button class="btn btn-muted" onclick="clearStorage()">Clear Flash Storage</button>
@@ -365,6 +375,9 @@ const char index_html[] PROGMEM = R"rawliteral(
         document.getElementById('tcpPort').textContent = d.tcpPort;
         if(d.cpuTemp !== undefined) document.getElementById('cpuTemp').innerHTML = d.cpuTemp.toFixed(1) + '&deg;C';
         
+        document.getElementById('enStatus').textContent = d.enStatus;
+        document.getElementById('enError').textContent = d.enError;
+
         document.getElementById('heading').innerHTML = Math.round(d.heading) + '&deg;';
         document.getElementById('compassNeedle').style.transform = `rotate(${d.heading}deg)`;
         
@@ -712,6 +725,9 @@ void setupWeb() {
     doc["ledMode"] = (int)gpsData.ledMode;
     doc["ledBlinkMs"] = LED_BLINK_DURATION_MS;
     doc["rate"] = gpsData.gpsInterval;
+
+    doc["enStatus"] = gpsData.espNowStatus;
+    doc["enError"] = gpsData.espNowError;
 
     unsigned long uptimeMillis = millis();
     unsigned long seconds = uptimeMillis / 1000;

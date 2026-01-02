@@ -59,6 +59,11 @@ struct GPSData {
   bool configSaved = false;
 
   float cpuTemp = 0.0;
+  
+  // ESP-NOW Status
+  String espNowStatus = "Disabled";
+  String espNowError = "";
+  unsigned long espNowLastTxTime = 0;
 
   // Min/Max Statistics
   double altMin = 99999.0;

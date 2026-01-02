@@ -1,50 +1,99 @@
-# ESP32-NINA-GPS
+# ESP32 GPS Broadcast & Web Server
 
-Lightweight firmware to provide GPS location and satellite status from a u-blox NEO-M9N GNSS module (see description below) to NINA. The ESP32 runs a TCP server (port 2947) and serves a web dashboard with live GPS and supports OTA updates.
+A robust ESP32 firmware that bridges high-precision GNSS data to the network and other devices. It reads from a u-blox module, serves data via TCP (NetGPS) and a Web Dashboard, and broadcasts real-time telemetry via ESP-NOW to remote displays.
 
 ![Dashboard](/images/dashboard.png)
 
-**Key features:**
-- TCP GPS stream on port 2947
-- Web dashboard with satellite view and firmware update
-- Station and Access Point WiFi modes
+## Key Features
 
-**Quick Start — Configure your ESP32 variant**
+- **Multi-Protocol Distribution:**
+  - **TCP Server (Port 2947):** Compatible with standard GPSD clients.
+  - **Web Dashboard:** Real-time satellite view, location data, and signal strength.
+  - **ESP-NOW:** Low-latency, connectionless broadcasting to nearby ESP32 receivers (e.g., dashboard displays).
+- **WiFi Modes:** Automatic fallback from Station (client) to Access Point mode.
+- **OTA Updates:** Update firmware wirelessly via the web interface (`/update`).
+- **ESPHome Receiver:** Includes a reference configuration for an ESP32-C6 display receiver.
 
-1. Hardware
-- ESP32 board (any common variant: `ESP32 DevKitC`, `ESP32-WROOM-32`, `ESP32-S3`, etc.)
-- u-blox GNSS module connected via I2C (SDA, SCL) and supported by the [Sparkfun library](https://github.com/sparkfun/SparkFun_u-blox_GNSS_Arduino_Library)
+## Architecture
 
-2. Libraries
-Install these libraries with the Arduino Library Manager or PlatformIO:
-- SparkFun u-blox GNSS Arduino Library
-- ESPAsyncWebServer and AsyncTCP (or AsyncTCP32 for ESP32-S3 where applicable)
-- ArduinoJson
-- ElegantOTA
+1.  **Sender (This Repository):**
+    *   Connects to a u-blox NEO-M9N (or compatible) via I2C.
+    *   Host IP: `2947` for raw NMEA/JSON streams.
+    *   Host IP: `80` for Web UI.
+    *   Broadcasts parsed GPS data packets via ESP-NOW.
 
-3. Edit `Config.h`
-- Set WiFi credentials for Station mode or leave blank to use AP mode.
-- Configure pins to match your ESP32 variant:
+2.  **Receiver:**
+    *   Listens for ESP-NOW packets.
+    *   Displays telemetry on a screen (e.g., Waveshare 1.47" LCD).
+    *   Integrates with Home Assistant.
 
+## Hardware Requirements
+
+**Sender:**
+- **MCU:** ESP32 (Standard, S3, C3, etc.)
+- **GNSS:** u-blox module (e.g., NEO-M9N, M8N) supported by SparkFun's library.
+- **Connection:** I2C (SDA/SCL).
+
+**Receiver (Optional):**
+- **MCU:** ESP32-C6 (or similar) with display support.
+- **Display:** ST7789 or compatible (Reference config provided for Waveshare 1.47" LCD).
+
+## Installation
+
+### 1. Sender (Firmware)
+
+**Dependencies:**
+Install the following libraries via Arduino Library Manager or PlatformIO:
+- `SparkFun u-blox GNSS Arduino Library`
+- `ESPAsyncWebServer` & `AsyncTCP` (or `AsyncTCP32` for S3/C3)
+- `ArduinoJson`
+- `ElegantOTA`
+
+**Configuration (`Config.h`):**
+Edit `Config.h` to match your hardware and network:
 ```cpp
-// Example: ESP32 DevKitC
-#define LED_PIN 2
-#define I2C_SDA 21
-#define I2C_SCL 22
+// Network
+const char* const WIFI_SSID = "Your_SSID"; // Leave empty for AP Mode
+const char* const WIFI_PASS = "Your_Pass";
 
-// WiFi (station)
-const char* const WIFI_SSID = "your_ssid";
-const char* const WIFI_PASS = "your_password";
+// Pins (Check your board's pinout!)
+#define I2C_SDA 21 // Common for ESP32 WROOM
+#define I2C_SCL 22
 ```
 
-4. Build & upload
-- With Arduino IDE: select the correct ESP32 board/variant and upload the sketch `ESP32-NINA-GPS.ino`.
+**Build & Upload:**
+Select your board in Arduino IDE/PlatformIO and upload `ESP32-NINA-GPS.ino`.
 
-5. Connect
-- After boot the device will attempt Station mode; if that fails it will fall back to AP mode.
-- Visit the device IP in a browser to open the dashboard (see the screenshot above).
-- Point NINA to the ESP32 IP on port 2947 to receive GPS data.
+### 2. Receiver (ESPHome)
 
-Support and notes
-- Ensure I2C wiring and pull-ups are correct for your GNSS module.
-- Some ESP32-S3 variants require `AsyncTCP32` instead of `AsyncTCP`.
+A complete ESPHome configuration is provided in the `Receiver/` directory.
+
+1.  Install [ESPHome](https://esphome.io/).
+2.  Copy `Receiver/esphome_receiver.yaml` to your ESPHome configuration directory.
+3.  Edit the YAML to set your WiFi credentials and encryption keys.
+4.  Flash the receiver device:
+    ```bash
+    esphome run esphome_receiver.yaml
+    ```
+5.  *Note:* The receiver must add the Sender's MAC address in the `espnow -> peers` section if `auto_add_peer` is disabled, though the current config uses `auto_add_peer: true`.
+
+## Usage
+
+**Web Dashboard:**
+Navigate to `http://<ESP32_IP>` to view status.
+
+**TCP Stream:**
+Connect via NetGPS/GPSD clients to `<ESP32_IP>:2947`.
+
+**ESP-NOW:**
+The device automatically broadcasts GPS updates. Ensure receivers are on the same WiFi channel (often channel 1 by default if not connected to WiFi, or the router's channel if connected).
+
+## Directory Structure
+
+- `ESP32-NINA-GPS.ino`: Main entry point.
+- `Config.h`: User configuration.
+- `GpsLogic.*`: GNSS polling and parsing.
+- `EspNowSender.*`: ESP-NOW broadcast logic.
+- `TcpServer.*`: TCP socket handling.
+- `WebServer.*`: HTTP server and dashboard assets.
+- `Receiver/`: ESPHome YAML configuration for receiver nodes.
