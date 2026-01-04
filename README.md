@@ -64,6 +64,16 @@ const char* const WIFI_PASS = "Your_Pass";
 **Build & Upload:**
 Select your board in Arduino IDE/PlatformIO and upload `ESP32-NINA-GPS.ino`.
 
+**Important Note for ESP32-S3 USB CDC Flashing:**
+This project follows the [ESP32 CDC/DFU flashing guidelines](https://docs.espressif.com/projects/arduino-esp32/en/latest/tutorials/cdc_dfu_flash.html) for ESP32-S3:
+- **USB Mode:** USB-OTG (TinyUSB)
+- **USB CDC On Boot:** Enabled
+- **Upload Mode:** UART0 / Hardware CDC
+- After flashing for the **first time**, you need to **manually reset the device** (press RESET button)
+- The Serial Monitor baud rate is set to **115200** (as configured in `Serial.begin(115200)`)
+
+Using the PowerShell script `compile-and-upload.ps1` automatically applies these settings.
+
 ### 2. Receiver (ESPHome)
 
 ![Receiver Device](Receiver/Receiver.jpg)

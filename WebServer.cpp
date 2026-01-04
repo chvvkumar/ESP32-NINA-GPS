@@ -749,11 +749,11 @@ void setupWeb() {
       int mode = request->getParam("mode")->value().toInt();
       gpsData.ledMode = static_cast<LedMode>(mode);
       if (gpsData.ledMode == LED_OFF) {
-        digitalWrite(LED_PIN, LOW);
+        turnLedOff();
       } else if (gpsData.ledMode == LED_ON) {
-        digitalWrite(LED_PIN, HIGH);
+        triggerLed();
       } else {
-        digitalWrite(LED_PIN, LOW);
+        turnLedOff();
       }
     }
     request->send(200, "text/plain", "OK");
@@ -818,8 +818,12 @@ void setupWeb() {
       }
   });
   
+  Serial0.println("[WEB] Initializing ElegantOTA...");
   ElegantOTA.begin(&webServer);
+  Serial0.print("[WEB] Starting web server on port ");
+  Serial0.println(WEB_PORT);
   webServer.begin();
+  Serial0.println("[WEB] Web server started");
 }
 
 void webLoop() {

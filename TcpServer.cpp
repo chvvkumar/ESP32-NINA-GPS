@@ -112,9 +112,12 @@ static void handleNewClient(void* arg, AsyncClient* client) {
 }
 
 void setupTCP() {
+  Serial0.print("[TCP] Initializing server on port ");
+  Serial0.println(TCP_PORT);
   clientsMutex = xSemaphoreCreateMutex();
   tcpServer.onClient(&handleNewClient, NULL);
   tcpServer.begin();
+  Serial0.println("[TCP] Server started, ready for connections");
 }
 
 bool hasNewConnections() {

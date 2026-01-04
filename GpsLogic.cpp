@@ -7,22 +7,31 @@
 #include "Storage.h"
 
 void setupGPS() {
-  Wire.begin(I2C_SDA, I2C_SCL);
-  Wire.setClock(400000);
+  Serial0.println("[GPS] Initializing I2C on Wire1...");
+  Serial0.print("[GPS]   SDA: Pin "); Serial0.println(I2C_SDA);
+  Serial0.print("[GPS]   SCL: Pin "); Serial0.println(I2C_SCL);
+  Wire1.begin(I2C_SDA, I2C_SCL);
+  Wire1.setClock(400000);
+  Serial0.println("[GPS] I2C Clock: 400kHz");
   
   // Increase I2C buffer for large NAV-SAT messages
   myGNSS.setPacketCfgPayloadSize(1024);
 
-  if (myGNSS.begin(Wire, 0x42) == false) {
-    Serial.println(F("u-blox GNSS not detected. Check wiring!"));
+  Serial0.println("[GPS] Attempting to connect to u-blox at 0x42...");
+  if (myGNSS.begin(Wire1, 0x42) == false) {
+    Serial0.println("[GPS] \u2717 ERROR: u-blox GNSS not detected!");
+    Serial0.println("[GPS] Check I2C wiring on STEMMA QT connector");
     gpsData.isConnected = false;
   } else {
-    Serial.println(F("u-blox GNSS connected"));
+    Serial0.println("[GPS] \u2713 u-blox GNSS connected successfully!");
     gpsData.isConnected = true;
     
     myGNSS.setI2COutput(COM_TYPE_UBX); 
     myGNSS.setMeasurementRate(gpsData.gpsInterval);
     myGNSS.setAutoNAVSAT(true);
+    Serial0.print("[GPS] Update rate: ");
+    Serial0.print(gpsData.gpsInterval);
+    Serial0.println(" ms");
   }
 }
 
@@ -40,8 +49,8 @@ void pollGPS() {
   if (lastInterval != gpsData.gpsInterval) {
     myGNSS.setMeasurementRate(gpsData.gpsInterval);
     lastInterval = gpsData.gpsInterval;
-    Serial.print(F("GPS Rate updated to: "));
-    Serial.println(lastInterval);
+    Serial0.print(F("GPS Rate updated to: "));
+    Serial0.println(lastInterval);
   }
 
   while(myGNSS.checkUblox()); 
@@ -83,7 +92,7 @@ void pollGPS() {
     gpsData.ttffSeconds = (gpsData.firstFixTime - gpsData.startTime) / 1000;
     
     if (!gpsData.configSaved) {
-      Serial.println("Fix Obtained! Saving Almanac to Battery Backup...");
+      Serial0.println("Fix Obtained! Saving Almanac to Battery Backup...");
       myGNSS.saveConfiguration(); 
       gpsData.configSaved = true;
     }

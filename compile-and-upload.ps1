@@ -1,9 +1,9 @@
 # ESP32 GPS - Compile and Upload Script
-# This script compiles and uploads the sketch to ESP32 Dev Module
+# This script compiles and uploads the sketch to Adafruit QT Py ESP32-S3
 # 
 # Parameters
 param(
-    [string]$ComPort = "COM11",
+    [string]$ComPort = "COM16",
     [string]$BaudRate = "921600",
     [string]$OutputFolder = "",
     [string]$OutputPath = "",
@@ -22,17 +22,22 @@ $BUILD_PATH = Join-Path $env:LOCALAPPDATA "arduino\sketches\$SKETCH_HASH"
 # Standard paths
 $ARDUINO15_PATH = "$env:LOCALAPPDATA\Arduino15"
 
-# Board configuration for Seeed Studio XIAO ESP32S3 (Generic S3 Fallback)
-# Using generic S3 definition since specific board might be missing in older cores
-$FQBN = "esp32:esp32:esp32s3:FlashSize=8M,PartitionScheme=default_8MB,CDCOnBoot=cdc"
-$BOARD = "esp32s3"
+# Board configuration for Adafruit QT Py ESP32-S3 (2MB PSRAM)
+# Following ESP32 CDC/DFU documentation for ESP32-S3:
+# - USBMode=default (Serial outputs to UART0)
+# - CDCOnBoot=default (Standard boot behavior)
+# - UploadMode=default (UART0 upload)
+# This routes all Serial.print() to COM16 (UART) for consistent monitoring
+$FQBN = "esp32:esp32:adafruit_qtpy_esp32s3_n4r2:UploadSpeed=921600,USBMode=default,CDCOnBoot=default,MSCOnBoot=default,DFUOnBoot=default,UploadMode=default,CPUFreq=240,FlashMode=qio,FlashSize=4M,PartitionScheme=tinyuf2_noota,DebugLevel=none,PSRAM=enabled,LoopCore=1,EventsCore=1,EraseFlash=none,ZigbeeMode=default"
 $CHIP = "esp32s3"
 
 # Tool paths (will be detected dynamically)
 $ESP32_PACKAGE = "$ARDUINO15_PATH\packages\esp32"
+# Also check Adafruit package path if installed separately
+$ADAFRUIT_PACKAGE = "$ARDUINO15_PATH\packages\adafruit"
 
 Write-Host "`n================================" -ForegroundColor Cyan
-Write-Host "ESP32 GPS Builder" -ForegroundColor Cyan
+Write-Host "ESP32 GPS Builder (QT Py S3)" -ForegroundColor Cyan
 Write-Host "================================`n" -ForegroundColor Cyan
 
 # Check if sketch exists
@@ -68,7 +73,7 @@ if ($ARDUINO_CLI) {
     $compileOutput = & $ARDUINO_CLI compile --fqbn $FQBN `
         --build-path $BUILD_PATH `
         --warnings "default" `
-        --build-property "compiler.cpp.extra_flags=-DELEGANTOTA_USE_ASYNC_WEBSERVER=1" `
+        --build-property "build.extra_flags=-DESP32 -DELEGANTOTA_USE_ASYNC_WEBSERVER=1" `
         $SKETCH_PATH 2>&1 | ForEach-Object {
             $line = $_.ToString()
             # Show important messages

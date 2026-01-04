@@ -45,18 +45,20 @@ void setupEspNow() {
   // It can operate even when WiFi is connected to a router (WIFI_AP_STA mode)
   // No need to change WiFi mode - ESP-NOW uses the WiFi radio directly
   
+  Serial0.println("[ESP-NOW] Initializing...");
+  
   // Print sender's MAC address for receiver configuration
-  Serial.print("ESP-NOW Sender MAC: ");
-  Serial.println(WiFi.macAddress());
-  Serial.print("Receiver MAC configured as: ");
+  Serial0.print("[ESP-NOW] Sender MAC: ");
+  Serial0.println(WiFi.macAddress());
+  Serial0.print("[ESP-NOW] Receiver MAC: ");
   for (int i = 0; i < 6; i++) {
-    Serial.printf("%02X", receiverMac[i]);
-    if (i < 5) Serial.print(":");
+    Serial0.printf("%02X", receiverMac[i]);
+    if (i < 5) Serial0.print(":");
   }
-  Serial.println();
+  Serial0.println();
 
   if (esp_now_init() != ESP_OK) {
-    Serial.println("Error initializing ESP-NOW");
+    Serial0.println("[ESP-NOW] \u2717 ERROR: Initialization failed");
     gpsData.espNowStatus = "Init Failed";
     gpsData.espNowError = "esp_now_init failed";
     return;
@@ -73,11 +75,11 @@ void setupEspNow() {
   peerInfo.encrypt = false; // No encryption (can be enabled with a shared key)
 
   if (esp_now_add_peer(&peerInfo) != ESP_OK) {
-    Serial.println("Failed to add peer");
+    Serial0.println("[ESP-NOW] \u2717 ERROR: Failed to add peer");
     gpsData.espNowStatus = "Peer Error";
     gpsData.espNowError = "Failed to add peer";
   } else {
-    Serial.println("ESP-NOW peer registered successfully");
+    Serial0.println("[ESP-NOW] \u2713 Peer registered successfully");
     gpsData.espNowStatus = "Ready";
   }
 }
