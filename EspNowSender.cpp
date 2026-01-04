@@ -21,6 +21,12 @@ typedef struct __attribute__((packed)) {
   uint8_t satsVisible;
   uint8_t fixType;
   char localTime[10];
+  float pdop;
+  float hdop;
+  float vdop;
+  float hAcc;
+  float vAcc;
+  uint32_t stationIp;
 } GpsEspNowPacket;
 
 // Callback when data is sent
@@ -89,6 +95,15 @@ void sendGpsDataViaEspNow() {
   packet.satsVisible = (uint8_t)gpsData.satellitesVisible;
   packet.fixType = gpsData.fixType;
   strncpy(packet.localTime, gpsData.localTimeStr.c_str(), sizeof(packet.localTime));
+  
+  packet.pdop = gpsData.pdop;
+  packet.hdop = gpsData.hdop;
+  packet.vdop = gpsData.vdop;
+  packet.hAcc = gpsData.hAcc;
+  packet.vAcc = gpsData.vAcc;
+  
+  packet.stationIp = WiFi.localIP();
+//  packet.displayPage = gpsData.displayPage; // Use current display page from global state
 
   esp_err_t result = esp_now_send(receiverMac, (uint8_t *) &packet, sizeof(packet));
   
@@ -99,3 +114,10 @@ void sendGpsDataViaEspNow() {
       gpsData.espNowError = "esp_now_send returned error";
   }
 }
+
+// // Set the display page and immediately send an update
+// void setDisplayPage(uint8_t page) {
+//   if (page > 1) page = 0; // Validate: only pages 0 and 1 exist
+//   gpsData.displayPage = page;
+//   sendGpsDataViaEspNow(); // Immediately send update to receiver
+// }
