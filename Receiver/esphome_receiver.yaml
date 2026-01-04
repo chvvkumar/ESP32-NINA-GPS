@@ -1,19 +1,19 @@
 # Enable Home Assistant API
 api:
   encryption:
-    key: "YOUR_API_ENCRYPTION_KEY_HERE"
+    key: "REPLACE_WITH_API_KEY"
 
 ota:
   - platform: esphome
-    password: "YOUR_OTA_PASSWORD_HERE"
+    password: "REPLACE_WITH_OTA_PASSWORD"
 
 wifi:
-  ssid: YOUR_WIFI_SSID
-  password: YOUR_WIFI_PASSWORD
+  ssid: "REPLACE_WITH_WIFI_SSID"
+  password: "REPLACE_WITH_WIFI_PASSWORD"
   power_save_mode: none
   ap:
     ssid: "ESP32C6-LCD Fallback"
-    password: "YOUR_FALLBACK_AP_PASSWORD"
+    password: "REPLACE_WITH_AP_PASSWORD"
 
 captive_portal:
 
@@ -71,6 +71,33 @@ esphome:
           red: !lambda "return id(idle_red).state / 255.0;"
           green: !lambda "return id(idle_green).state / 255.0;"
           blue: !lambda "return id(idle_blue).state / 255.0;"
+      - delay: 2s
+      - lambda: |-
+          // Update receiver IP address on display
+          auto ip_str = id(wifi_ip_address).state;
+          lv_label_set_text(id(value_receiver_ip), ip_str.c_str());
+      # Restore the last displayed LVGL page
+      - delay: 500ms
+      - if:
+          condition:
+            lambda: 'return id(display_page).has_state() && id(display_page).current_option() == "GPS Position";'
+          then:
+            - lvgl.page.show: page_position
+      - if:
+          condition:
+            lambda: 'return id(display_page).has_state() && id(display_page).current_option() == "GPS Accuracy";'
+          then:
+            - lvgl.page.show: page_accuracy
+      - if:
+          condition:
+            lambda: 'return id(display_page).has_state() && id(display_page).current_option() == "Speed";'
+          then:
+            - lvgl.page.show: page_speed
+      - if:
+          condition:
+            lambda: 'return id(display_page).has_state() && id(display_page).current_option() == "Network Info";'
+          then:
+            - lvgl.page.show: page_network
 
 logger:
 
@@ -110,7 +137,7 @@ button:
 espnow:
   auto_add_peer: true
   peers:
-    - "XX:XX:XX:XX:XX:XX"  # Replace with actual MAC address of sender 
+    - "AA:BB:CC:DD:EE:FF" 
   
   on_receive:
     - lambda: |-
@@ -183,7 +210,7 @@ espnow:
         lv_bar_set_value(id(lbl_sats), packet.sats, LV_ANIM_OFF);
         lv_label_set_text(id(lbl_status), status.c_str());
 
-        snprintf(final_buf, sizeof(final_buf), "%d/%d", packet.sats, packet.satsVisible);
+        snprintf(final_buf, sizeof(final_buf), "%d / %d", packet.sats, packet.satsVisible);
         lv_label_set_text(id(sat_status), final_buf);
 
         // 4. Update Page 2 Labels (DOP values, accuracy, heading)
@@ -216,7 +243,19 @@ espnow:
         lv_label_set_text(id(val_speed), final_buf);
         lv_bar_set_value(id(bar_speed), (int)speed_mph, LV_ANIM_OFF);
 
-        // 5. Trigger LED Alert
+        // 6. Extract and display Station IP Address
+        uint8_t ip_bytes[4];
+        ip_bytes[0] = (packet.stationIp >> 0) & 0xFF;
+        ip_bytes[1] = (packet.stationIp >> 8) & 0xFF;
+        ip_bytes[2] = (packet.stationIp >> 16) & 0xFF;
+        ip_bytes[3] = (packet.stationIp >> 24) & 0xFF;
+        
+        snprintf(final_buf, sizeof(final_buf), "%d.%d.%d.%d", ip_bytes[0], ip_bytes[1], ip_bytes[2], ip_bytes[3]);
+        std::string ip_str(final_buf);
+        id(gps_station_ip).publish_state(ip_str);
+        lv_label_set_text(id(value_gps_ip), final_buf);
+
+        // 7. Trigger LED Alert
         id(espnow_blink_alert).execute();
 
 # =========================================================================
@@ -282,6 +321,14 @@ text_sensor:
   - platform: wifi_info
     mac_address:
       name: "ESP MAC Address"
+    ip_address:
+      name: "ESP IP Address"
+      id: wifi_ip_address
+      internal: true
+      on_value:
+        then:
+          - lambda: |-
+              lv_label_set_text(id(value_receiver_ip), x.c_str());
 
   - platform: template
     id: gps_local_time
@@ -291,6 +338,11 @@ text_sensor:
   - platform: template
     id: gps_fix_status
     name: "GPS Fix Status"
+    internal: true
+  
+  - platform: template
+    id: gps_station_ip
+    name: "GPS Station IP"
     internal: true
 
 number:
@@ -522,6 +574,7 @@ select:
       - "GPS Position"
       - "GPS Accuracy"
       - "Speed"
+      - "Network Info"
     initial_option: "GPS Position"
     optimistic: true
     restore_value: true
@@ -542,6 +595,11 @@ select:
               lambda: 'return x == "Speed";'
             then:
               - lvgl.page.show: page_speed
+        - if:
+            condition:
+              lambda: 'return x == "Network Info";'
+            then:
+              - lvgl.page.show: page_network
 
 # -------------------------------------------------------------------------
 # LVGL CONFIGURATION (V8.x)
@@ -637,10 +695,10 @@ lvgl:
 
         - label:
             id: sat_status
-            x: 235
+            x: 221
             y: 7
             height: 30
-            text: "00/00"
+            text: "00 / 00"
             text_color: 0xE10522
             text_align: RIGHT
             long_mode: SCROLL_CIRCULAR
@@ -845,6 +903,73 @@ lvgl:
             text_color: 0xE10522
             text_align: CENTER
             text_font: montserrat_32
+
+    - id: page_network
+      bg_color: 0x000000
+      widgets:
+        - label:
+            id: lbl_network_title
+            x: 0
+            y: 2
+            width: 320
+            text: "Network Info"
+            text_color: 0xE10522
+            text_align: CENTER
+            text_font: montserrat_32
+
+        - line:
+            id: lv_line_network
+            x: 0
+            y: 35
+            width: 320
+            height: 20
+            points:
+              - 10, 10
+              - 310, 10
+            line_color: 0xB2061D
+            line_rounded: true
+
+        - label:
+            id: lbl_receiver_ip_title
+            x: 0
+            y: 60
+            height: 30
+            text: "Rec."
+            text_color: 0xE10522
+            long_mode: CLIP
+            text_font: montserrat_20
+
+        - label:
+            id: value_receiver_ip
+            x: 106
+            y: 60
+            height: 30
+            text: "0.0.0.0"
+            text_color: 0xE10522
+            text_align: RIGHT
+            long_mode: CLIP
+            text_font: montserrat_28
+
+        - label:
+            id: lbl_gps_ip_title
+            x: 0
+            y: 130
+            height: 30
+            text: "GPS"
+            text_color: 0xE10522
+            long_mode: CLIP
+            text_font: montserrat_20
+
+        - label:
+            id: value_gps_ip
+            x: 106
+            y: 130
+            height: 30
+            text: "0.0.0.0"
+            text_color: 0xE10522
+            text_align: RIGHT
+            long_mode: CLIP
+            text_font: montserrat_28
 
   buffer_size: 10%
   displays:
