@@ -73,6 +73,11 @@ public:
     // This avoids polling 'saveIfChanged' constantly or missing a save on power loss.
     
     void updateAlt(double alt) {
+        // Validate altitude is within reasonable Earth bounds (-500m to 9000m)
+        // This filters out spurious GPS readings
+        if (alt < -500.0 || alt > 10000.0) {
+            return; // Reject invalid altitude reading
+        }
         if (alt < gpsData.altMin) { gpsData.altMin = alt; prefs.putDouble("altMin", alt); }
         if (alt > gpsData.altMax) { gpsData.altMax = alt; prefs.putDouble("altMax", alt); }
     }
