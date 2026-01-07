@@ -33,82 +33,55 @@ This system consists of two main components:
 
 ## Architecture
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│                      GPS Sender                             │
-│                   (XIAO ESP32-S3)                           │
-│                                                             │
-│  ┌──────────┐    ┌──────────────────────────────────────┐   │
-│  │  u-blox  │ ─> │  GPS Logic                           │   │
-│  │  GNSS    │    │  - Position, Speed, Heading          │   │
-│  │  Module  │    │  - Satellite Info                    │   │
-│  └──────────┘    │  - DOP Values                        │   │
-│                  │  - Accuracy Estimates                │   │
-│                  └──────────────────────────────────────┘   │
-│                              │                              │
-│           ┌──────────────────┼──────────────────┐           │
-│           ▼                  ▼                  ▼           │
-│    ┌────────────┐    ┌────────────┐    ┌────────────┐       │
-│    │ TCP Server │    │ Web Server │    │  ESP-NOW   │       │
-│    │ Port 2947  │    │  Port 80   │    │ Broadcast  │       │
-│    │ NMEA/GPSD  │    │ Dashboard  │    │            │       │
-│    └────────────┘    └────────────┘    └────────────┘       │
-│                                              │              │
-└──────────────────────────────────────────────│──────────────┘
-                                               │
-                    ┌──────────────────────────┴───────────────┐
-                    │                                          │
-                    ▼                                          ▼
-┌─────────────────────────────────────┐   ┌──────────────────────────────────────┐
-│    Receiver #1: ESP32-C6 LCD        │   │  Receiver #2: ESP32-S3 AMOLED        │
-│                                     │   │                                      │
-│  ┌───────────────────────────────┐  │   │  ┌────────────────────────────────┐  │
-│  │  ESP-NOW Receiver             │  │   │  │  ESP-NOW Receiver              │  │
-│  │  - Packet validation          │  │   │  │  - Packet validation           │  │
-│  │  - Pong response sender       │  │   │  │  - Pong response sender        │  │
-│  └───────────────┬───────────────┘  │   │  └───────────────┬────────────────┘  │
-│                  │                  │   │                  │                   │
-│       ┌──────────┼────────────┐     │   │       ┌──────────┼─────────────┐     │
-│       ▼          ▼            ▼     │   │       ▼          ▼             ▼     │
-│  ┌─────────┐ ┌──────┐ ┌──────────┐  │   │  ┌──────────┐ ┌──────┐ ┌──────────┐  │
-│  │ Home    │ │ WiFi │ │ Web      │  │   │  │ Home     │ │ WiFi │ │ Web      │  │
-│  │ Assist. │ │      │ │ Server   │  │   │  │ Assist.  │ │      │ │ Server   │  │
-│  │ API     │ │      │ │ Port 80  │  │   │  │ API      │ │      │ │ Port 80  │  │
-│  └─────────┘ └──────┘ └──────────┘  │   │  └──────────┘ └──────┘ └──────────┘  │
-│                  │                  │   │                  │                   │
-│                  ▼                  │   │                  ▼                   │
-│  ┌───────────────────────────────┐  │   │  ┌────────────────────────────────┐  │
-│  │  LVGL Display Engine          │  │   │  │  LVGL Display Engine           │  │
-│  │  - 4 Pages (Home, Accuracy,   │  │   │  │  - 4 Pages (Home, Accuracy,    │  │
-│  │    Speed, Network Info)       │  │   │  │    Speed, Network Info)        │  │
-│  │  - Dynamic satellite bar      │  │   │  │  - Dynamic satellite bar       │  │
-│  │  - Real-time GPS data         │  │   │  │  - Real-time GPS data          │  │
-│  │  - Status LED indicator       │  │   │  │  - Status LED indicator        │  │
-│  └───────────────┬───────────────┘  │   │  └───────────────┬────────────────┘  │
-│                  │                  │   │                  │                   │
-│                  ▼                  │   │       ┌──────────┴──────────┐        │
-│  ┌───────────────────────────────┐  │   │       ▼                     ▼        │
-│  │  ST7789V Display Driver       │  │   │  ┌──────────┐  ┌──────────────────┐  │
-│  │  - 172x320 SPI LCD            │  │   │  │ FT5x06   │  │ MIPI SPI AMOLED  │  │
-│  │  - Backlight control          │  │   │  │ Touch    │  │ 368x448 Display  │  │
-│  │  - Rotation support           │  │   │  │ Screen   │  │ - Brightness Ctl │  │
-│  └───────────────────────────────┘  │   │  │          │  │ - Rotation Ctl   │  │
-│                                     │   │  └──────────┘  └──────────────────┘  │
-│  ┌───────────────────────────────┐  │   │                                      │
-│  │  Persistent Storage           │  │   │  ┌────────────────────────────────┐  │
-│  │  - Display settings           │  │   │  │  Physical Controls             │  │
-│  │  - LED preferences            │  │   │  │  - Brightness cycle button     │  │
-│  │  - Page state                 │  │   │  │  - Page navigation button      │  │
-│  └───────────────────────────────┘  │   │  │  - PCA9554 GPIO expander       │  │
-│                                     │   │  └────────────────────────────────┘  │
-│  ┌───────────────────────────────┐  │   │                                      │
-│  │  RGB LED (SK6812)             │  │   │  ┌────────────────────────────────┐  │
-│  │  - Configurable idle color    │  │   │  │  Persistent Storage            │  │
-│  │  - ESP-NOW activity blink     │  │   │  │  - Display settings            │  │
-│  │  - Brightness control         │  │   │  │  - Page state                  │  │
-│  └───────────────────────────────┘  │   │  │  - LED blink duration          │  │
-│                                     │   │  └────────────────────────────────┘  │
-└─────────────────────────────────────┘   └──────────────────────────────────────┘
+```mermaid
+graph TD
+    subgraph Sender ["GPS Sender (XIAO ESP32-S3)"]
+        GNSS["u-blox GNSS Module"] --> Logic["GPS Logic<br/>- Position, Speed, Heading<br/>- Satellite Info<br/>- DOP Values<br/>- Accuracy Estimates"]
+        Logic --> TCP["TCP Server<br/>Port 2947<br/>NMEA/GPSD"]
+        Logic --> Web["Web Server<br/>Port 80<br/>Dashboard"]
+        Logic --> ESPNOW["ESP-NOW<br/>Broadcast<br/>Ping Sender"]
+    end
+
+    subgraph Receiver1 ["Receiver #1: ESP32-C6 LCD"]
+        RX1_ESP["ESP-NOW Receiver<br/>- Packet validation<br/>- Pong response sender"]
+        RX1_HA["Home Assist. API"]
+        RX1_WiFi["WiFi"]
+        RX1_Web["Web Server<br/>Port 80"]
+        RX1_LVGL["LVGL Display Engine<br/>- 4 Pages<br/>- Dynamic satellite bar<br/>- Real-time GPS data<br/>- Status LED indicator"]
+        RX1_Driver["ST7789V Display Driver<br/>- 172x320 SPI LCD<br/>- Backlight control<br/>- Rotation support"]
+        RX1_Storage["Persistent Storage<br/>- Display settings<br/>- LED preferences<br/>- Page state"]
+        RX1_LED["RGB LED (SK6812)<br/>- Configurable idle color<br/>- ESP-NOW activity blink<br/>- Brightness control"]
+
+        RX1_ESP --> RX1_HA
+        RX1_ESP --> RX1_WiFi
+        RX1_ESP --> RX1_Web
+        RX1_ESP --> RX1_LVGL
+        RX1_LVGL --> RX1_Driver
+        RX1_LVGL -.-> RX1_Storage
+        RX1_LVGL -.-> RX1_LED
+    end
+
+    subgraph Receiver2 ["Receiver #2: ESP32-S3 AMOLED"]
+        RX2_ESP["ESP-NOW Receiver<br/>- Packet validation<br/>- Pong response sender"]
+        RX2_HA["Home Assist. API"]
+        RX2_WiFi["WiFi"]
+        RX2_Web["Web Server<br/>Port 80"]
+        RX2_LVGL["LVGL Display Engine<br/>- 4 Pages<br/>- Dynamic satellite bar<br/>- Real-time GPS data<br/>- Status LED indicator"]
+        RX2_Driver["MIPI SPI AMOLED<br/>368x448 Display<br/>- Brightness Ctl<br/>- Rotation Ctl"]
+        RX2_Controls["Physical Controls<br/>- Brightness cycle button<br/>- Page navigation button<br/>- PCA9554 GPIO expander"]
+        RX2_Storage["Persistent Storage<br/>- Display settings<br/>- Page state<br/>- LED blink duration"]
+
+        RX2_ESP --> RX2_HA
+        RX2_ESP --> RX2_WiFi
+        RX2_ESP --> RX2_Web
+        RX2_ESP --> RX2_LVGL
+        RX2_LVGL --> RX2_Driver
+        RX2_Controls --> RX2_LVGL
+        RX2_LVGL -.-> RX2_Storage
+    end
+
+    ESPNOW -.-> RX1_ESP
+    ESPNOW -.-> RX2_ESP
 ```
 
 ## Features
