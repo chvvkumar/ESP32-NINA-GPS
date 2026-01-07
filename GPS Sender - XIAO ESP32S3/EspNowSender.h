@@ -5,5 +5,6 @@
 
 void setupEspNow();
 void sendGpsDataViaEspNow();
+void checkEspNowClientTimeouts();  // Check for client timeouts
 
 #endif

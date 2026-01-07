@@ -4,6 +4,9 @@
 #include <ESPAsyncWebServer.h>
 #define ELEGANTOTA_USE_ASYNC_WEBSERVER 1
 #include <ElegantOTA.h>
+
+// Global OTA status flag
+volatile bool otaInProgress = false;
 #include <ArduinoJson.h>
 #include "WebServer.h"
 #include "Config.h"
@@ -316,6 +319,9 @@ const char index_html[] PROGMEM = R"rawliteral(
              <span class="info-label">LAST ERROR</span>
              <span class="info-val" id="enError" style="color: var(--danger);">--</span>
         </div>
+        
+        <!-- ESP-NOW Client Metrics -->
+        <div id="espNowClients" style="margin-bottom: 15px;"></div>
 
         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 15px;">
              <button class="btn btn-muted" onclick="clearRam()">Clear RAM Stats</button>
@@ -377,6 +383,9 @@ const char index_html[] PROGMEM = R"rawliteral(
         
         document.getElementById('enStatus').textContent = d.enStatus;
         document.getElementById('enError').textContent = d.enError;
+        
+        // Update ESP-NOW client metrics
+        updateEspNowClients(d.enClients || []);
 
         document.getElementById('heading').innerHTML = Math.round(d.heading) + '&deg;';
         document.getElementById('compassNeedle').style.transform = `rotate(${d.heading}deg)`;
@@ -507,6 +516,32 @@ const char index_html[] PROGMEM = R"rawliteral(
              const el = document.getElementById(id);
              if(el) el.textContent = "--";
          });
+    }
+
+    function updateEspNowClients(clients) {
+        const container = document.getElementById('espNowClients');
+        if (!clients || clients.length === 0) {
+            container.innerHTML = '';
+            return;
+        }
+        
+        let html = '<div style="border-top: 1px solid rgba(255,255,255,0.1); padding-top: 10px; margin-top: 10px;">';
+        html += '<div class="coord-label" style="margin-bottom: 10px;">ESP-NOW CLIENTS</div>';
+        
+        clients.forEach((client, idx) => {
+            const statusColor = client.connected ? 'var(--success)' : 'var(--text-muted)';
+            const statusText = client.connected ? 'CONNECTED' : 'DISCONNECTED';
+            
+            html += '<div style="background: rgba(255,255,255,0.03); padding: 10px; border-radius: 8px; margin-bottom: 8px;">';
+            html += `<div style="display: flex; justify-content: space-between; align-items: center;">`;
+            html += `<span style="font-family: 'Courier New', monospace; font-size: 0.8rem; color: var(--accent);">${client.mac}</span>`;
+            html += `<span style="font-size: 0.7rem; padding: 3px 8px; background: ${statusColor}; color: #000; border-radius: 4px; font-weight: bold;">${statusText}</span>`;
+            html += '</div>';
+            html += '</div>';
+        });
+        
+        html += '</div>';
+        container.innerHTML = html;
     }
 
     function rebootEsp() {
@@ -687,6 +722,8 @@ void setupWeb() {
 
   webServer.on("/api/status", HTTP_GET, [](AsyncWebServerRequest *request){
     JsonDocument doc;
+
+    unsigned long now = millis();
     doc["stationIp"] = WiFi.localIP().toString();
     doc["apIp"] = WiFi.softAPIP().toString();
     doc["tcpPort"] = TCP_PORT;
@@ -728,6 +765,50 @@ void setupWeb() {
 
     doc["enStatus"] = gpsData.espNowStatus;
     doc["enError"] = gpsData.espNowError;
+    
+    // ESP-NOW Per-Client Metrics
+    JsonArray clients = doc["enClients"].to<JsonArray>();
+    for (int i = 0; i < 3; i++) {
+      // Skip uninitialized clients (check if MAC is all zeros)
+      bool isInitialized = false;
+      for (int j = 0; j < 6; j++) {
+        if (gpsData.espNowClients[i].macAddr[j] != 0) {
+          isInitialized = true;
+          break;
+        }
+      }
+      
+      if (!isInitialized) continue;
+      
+      JsonObject client = clients.add<JsonObject>();
+      
+      // Format MAC address
+      char macStr[18];
+      sprintf(macStr, "%02X:%02X:%02X:%02X:%02X:%02X",
+              gpsData.espNowClients[i].macAddr[0],
+              gpsData.espNowClients[i].macAddr[1],
+              gpsData.espNowClients[i].macAddr[2],
+              gpsData.espNowClients[i].macAddr[3],
+              gpsData.espNowClients[i].macAddr[4],
+              gpsData.espNowClients[i].macAddr[5]);
+      client["mac"] = macStr;
+      client["connected"] = gpsData.espNowClients[i].isActive;
+
+      // Calculate connection status for UI without stopping the sender
+      bool isConnected = gpsData.espNowClients[i].isActive;
+      unsigned long lastResponse = gpsData.espNowClients[i].lastResponseTime;
+      
+      if (isConnected) {
+        if (lastResponse == 0) {
+          // If never received response, check if system uptime exceeds timeout
+          if (now > gpsData.espNowTimeoutMs) isConnected = false;
+        } else {
+          // Check timeout against last response
+          if (now - lastResponse > gpsData.espNowTimeoutMs) isConnected = false;
+        }
+      }
+      client["connected"] = isConnected;
+    }
 
     unsigned long uptimeMillis = millis();
     unsigned long seconds = uptimeMillis / 1000;
@@ -741,7 +822,12 @@ void setupWeb() {
 
     String response;
     serializeJson(doc, response);
-    request->send(200, "application/json", response);
+    
+    AsyncWebServerResponse *responseObj = request->beginResponse(200, "application/json", response);
+    responseObj->addHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+    responseObj->addHeader("Pragma", "no-cache");
+    responseObj->addHeader("Expires", "0");
+    request->send(responseObj);
   });
 
   webServer.on("/api/set_led", HTTP_GET, [](AsyncWebServerRequest *request){
@@ -818,10 +904,31 @@ void setupWeb() {
       }
   });
   
+  // Set high-priority OTA callbacks
+  ElegantOTA.onStart([]() {
+    Serial.println("OTA Update Started - Suspending all tasks");
+    otaInProgress = true;
+  });
+  
+  ElegantOTA.onEnd([](bool success) {
+    otaInProgress = false;
+    if (success) {
+      Serial.println("OTA Update Successful - Rebooting...");
+    } else {
+      Serial.println("OTA Update Failed - Resuming normal operation");
+    }
+  });
+  
   ElegantOTA.begin(&webServer);
   webServer.begin();
 }
 
 void webLoop() {
   ElegantOTA.loop();
+}
+
+bool isOTAUpdating() {
+  // Check if OTA is currently running by checking the internal state
+  // ElegantOTA doesn't expose this directly, so we yield frequently during loop
+  return false; // Handled by frequent webLoop calls instead
 }

@@ -10,4 +10,7 @@ extern SFE_UBLOX_GNSS myGNSS;
 class Storage; // Forward declaration
 extern Storage storage;
 
+// OTA Update Status
+extern volatile bool otaInProgress;
+
 #endif

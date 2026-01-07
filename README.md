@@ -1,101 +1,494 @@
-# ESP32 GPS Broadcast & Web Server
+# ESP32 GPS Broadcast System
 
-A robust ESP32 firmware that bridges GNSS data to the network and other devices. It reads from a u-blox module, serves data via TCP (NetGPS) and a Web Dashboard, and broadcasts real-time telemetry via ESP-NOW to remote displays.
+A multi-protocol GPS data distribution system built on ESP32. This project reads GNSS data from a u-blox module and distributes it via TCP, HTTP, and ESP-NOW to connected clients and remote displays.
 
 ![Dashboard](/images/dashboard.png)
 
-## Key Features
+## Table of Contents
 
-- **Multi-Protocol Distribution:**
-  - **TCP Server (Port 2947):** Compatible with standard GPSD clients.
-  - **Web Dashboard:** Real-time satellite view, location data, and signal strength.
-  - **ESP-NOW:** Low-latency, connectionless broadcasting to nearby ESP32 receivers (e.g., dashboard displays).
-- **WiFi Modes:** Automatic fallback from Station (client) to Access Point mode.
-- **OTA Updates:** Update firmware wirelessly via the web interface (`/update`).
-- **ESPHome Receiver:** Includes a reference configuration for an ESP32-C6 display receiver.
+- [Overview](#overview)
+- [Architecture](#architecture)
+- [Features](#features)
+- [Hardware Requirements](#hardware-requirements)
+- [Software Dependencies](#software-dependencies)
+- [Installation](#installation)
+  - [GPS Sender Setup](#gps-sender-setup)
+  - [Receiver Setup](#receiver-setup)
+- [Configuration](#configuration)
+- [Usage](#usage)
+- [Web Dashboard](#web-dashboard)
+- [ESP-NOW Protocol](#esp-now-protocol)
+- [TCP Server Protocol](#tcp-server-protocol)
+- [Directory Structure](#directory-structure)
+- [Troubleshooting](#troubleshooting)
+- [License](#license)
+
+## Overview
+
+This system consists of two main components:
+
+1. **GPS Sender**: An ESP32-based device that reads GPS data from a u-blox GNSS receiver and broadcasts it through multiple channels simultaneously.
+
+2. **Receivers**: ESP32-based display devices that receive GPS telemetry via ESP-NOW and present it on LCD/AMOLED screens. Two receiver configurations are provided for different Waveshare display modules.
 
 ## Architecture
 
-1.  **Sender (This Repository):**
-    *   Connects to a u-blox NEO-M9N (or compatible) via I2C.
-    *   Host IP: `2947` for raw NMEA/JSON streams.
-    *   Host IP: `80` for Web UI.
-    *   Broadcasts parsed GPS data packets via ESP-NOW.
+```
+┌─────────────────────────────────────────────────────────────┐
+│                      GPS Sender                             │
+│                   (XIAO ESP32-S3)                           │
+│                                                             │
+│  ┌──────────┐    ┌──────────────────────────────────────┐   │
+│  │  u-blox  │ ─> │  GPS Logic                           │   │
+│  │  GNSS    │    │  - Position, Speed, Heading          │   │
+│  │  Module  │    │  - Satellite Info                    │   │
+│  └──────────┘    │  - DOP Values                        │   │
+│                  │  - Accuracy Estimates                │   │
+│                  └──────────────────────────────────────┘   │
+│                              │                              │
+│           ┌──────────────────┼──────────────────┐           │
+│           ▼                  ▼                  ▼           │
+│    ┌────────────┐    ┌────────────┐    ┌────────────┐       │
+│    │ TCP Server │    │ Web Server │    │  ESP-NOW   │       │
+│    │ Port 2947  │    │  Port 80   │    │ Broadcast  │       │
+│    │ NMEA/GPSD  │    │ Dashboard  │    │            │       │
+│    └────────────┘    └────────────┘    └────────────┘       │
+│                                              │              │
+└──────────────────────────────────────────────│──────────────┘
+                                               │
+                    ┌──────────────────────────┴───────────────┐
+                    │                                          │
+                    ▼                                          ▼
+┌─────────────────────────────────────┐   ┌──────────────────────────────────────┐
+│    Receiver #1: ESP32-C6 LCD        │   │  Receiver #2: ESP32-S3 AMOLED        │
+│                                     │   │                                      │
+│  ┌───────────────────────────────┐  │   │  ┌────────────────────────────────┐  │
+│  │  ESP-NOW Receiver             │  │   │  │  ESP-NOW Receiver              │  │
+│  │  - Packet validation          │  │   │  │  - Packet validation           │  │
+│  │  - Pong response sender       │  │   │  │  - Pong response sender        │  │
+│  └───────────────┬───────────────┘  │   │  └───────────────┬────────────────┘  │
+│                  │                  │   │                  │                   │
+│       ┌──────────┼────────────┐     │   │       ┌──────────┼─────────────┐     │
+│       ▼          ▼            ▼     │   │       ▼          ▼             ▼     │
+│  ┌─────────┐ ┌──────┐ ┌──────────┐  │   │  ┌──────────┐ ┌──────┐ ┌──────────┐  │
+│  │ Home    │ │ WiFi │ │ Web      │  │   │  │ Home     │ │ WiFi │ │ Web      │  │
+│  │ Assist. │ │      │ │ Server   │  │   │  │ Assist.  │ │      │ │ Server   │  │
+│  │ API     │ │      │ │ Port 80  │  │   │  │ API      │ │      │ │ Port 80  │  │
+│  └─────────┘ └──────┘ └──────────┘  │   │  └──────────┘ └──────┘ └──────────┘  │
+│                  │                  │   │                  │                   │
+│                  ▼                  │   │                  ▼                   │
+│  ┌───────────────────────────────┐  │   │  ┌────────────────────────────────┐  │
+│  │  LVGL Display Engine          │  │   │  │  LVGL Display Engine           │  │
+│  │  - 4 Pages (Home, Accuracy,   │  │   │  │  - 4 Pages (Home, Accuracy,    │  │
+│  │    Speed, Network Info)       │  │   │  │    Speed, Network Info)        │  │
+│  │  - Dynamic satellite bar      │  │   │  │  - Dynamic satellite bar       │  │
+│  │  - Real-time GPS data         │  │   │  │  - Real-time GPS data          │  │
+│  │  - Status LED indicator       │  │   │  │  - Status LED indicator        │  │
+│  └───────────────┬───────────────┘  │   │  └───────────────┬────────────────┘  │
+│                  │                  │   │                  │                   │
+│                  ▼                  │   │       ┌──────────┴──────────┐        │
+│  ┌───────────────────────────────┐  │   │       ▼                     ▼        │
+│  │  ST7789V Display Driver       │  │   │  ┌──────────┐  ┌──────────────────┐  │
+│  │  - 172x320 SPI LCD            │  │   │  │ FT5x06   │  │ MIPI SPI AMOLED  │  │
+│  │  - Backlight control          │  │   │  │ Touch    │  │ 368x448 Display  │  │
+│  │  - Rotation support           │  │   │  │ Screen   │  │ - Brightness Ctl │  │
+│  └───────────────────────────────┘  │   │  │          │  │ - Rotation Ctl   │  │
+│                                     │   │  └──────────┘  └──────────────────┘  │
+│  ┌───────────────────────────────┐  │   │                                      │
+│  │  Persistent Storage           │  │   │  ┌────────────────────────────────┐  │
+│  │  - Display settings           │  │   │  │  Physical Controls             │  │
+│  │  - LED preferences            │  │   │  │  - Brightness cycle button     │  │
+│  │  - Page state                 │  │   │  │  - Page navigation button      │  │
+│  └───────────────────────────────┘  │   │  │  - PCA9554 GPIO expander       │  │
+│                                     │   │  └────────────────────────────────┘  │
+│  ┌───────────────────────────────┐  │   │                                      │
+│  │  RGB LED (SK6812)             │  │   │  ┌────────────────────────────────┐  │
+│  │  - Configurable idle color    │  │   │  │  Persistent Storage            │  │
+│  │  - ESP-NOW activity blink     │  │   │  │  - Display settings            │  │
+│  │  - Brightness control         │  │   │  │  - Page state                  │  │
+│  └───────────────────────────────┘  │   │  │  - LED blink duration          │  │
+│                                     │   │  └────────────────────────────────┘  │
+└─────────────────────────────────────┘   └──────────────────────────────────────┘
+```
 
-2.  **Receiver:**
-    *   Listens for ESP-NOW packets.
-    *   Displays telemetry on a screen (e.g., Waveshare 1.47" LCD).
-    *   Integrates with Home Assistant.
+## Features
+
+### GPS Sender
+
+- **Multi-Protocol Output**
+  - TCP server on port 2947 (GPSD-compatible JSON and NMEA sentences)
+  - HTTP web dashboard with real-time updates
+  - ESP-NOW broadcast for low-latency wireless display updates
+
+- **GPS Data**
+  - Latitude, Longitude, Altitude (HAE and MSL)
+  - Ground speed and heading
+  - Satellite count (used and visible)
+  - Fix type and status
+  - DOP values (PDOP, HDOP, VDOP)
+  - Horizontal and vertical accuracy estimates
+  - UTC and local time calculation
+
+- **Statistics Tracking**
+  - Min/max altitude
+  - Maximum speed
+  - Maximum satellites
+  - Minimum DOP values
+  - Minimum accuracy values
+  - Persistent storage in flash memory
+
+- **Network Features**
+  - Dual-mode WiFi (Station + Access Point)
+  - WiFi credential storage and web-based configuration
+  - OTA firmware updates via ElegantOTA
+
+- **Hardware Indicators**
+  - Configurable LED modes (off, on, blink on read, blink on fix, blink on movement)
+
+### Receivers
+
+- Real-time GPS data display via LVGL
+- Multiple display pages (Home, Accuracy, Speed, Network Info)
+- Ping-pong connection monitoring with the sender
+- Home Assistant integration via ESPHome
+- Configurable display brightness and rotation
+- Physical button support for page navigation
 
 ## Hardware Requirements
 
-**Sender:**
-- **MCU:** ESP32 (Standard, S3, C3, etc.)
-- **GNSS:** u-blox module (e.g., NEO-M9N, M8N) supported by SparkFun's library.
-- **Connection:** I2C (SDA/SCL).
+### GPS Sender
 
-**Receiver (Optional):**
-- **MCU:** ESP32-C6 (or similar) with display support.
-- **Display:** ST7789 or compatible (Reference config provided for Waveshare 1.47" LCD).
+| Component | Specification |
+|-----------|---------------|
+| MCU | Seeed Studio XIAO ESP32-S3 (or compatible ESP32) |
+| GNSS Module | u-blox NEO-M9N, NEO-M8N, or compatible |
+| Connection | I2C (SDA: GPIO5, SCL: GPIO6 by default) |
+| LED | Onboard LED on GPIO21 |
+
+### Receiver Option 1: ESP32-C6 with 1.47" LCD
+
+| Component | Specification |
+|-----------|---------------|
+| Board | Waveshare ESP32-C6-LCD-1.47 |
+| Display | ST7789 172x320 |
+| Interface | SPI |
+
+### Receiver Option 2: ESP32-S3 with 1.8" AMOLED
+
+| Component | Specification |
+|-----------|---------------|
+| Board | Waveshare ESP32-S3-Touch-AMOLED-1.8 |
+| Display | MIPI SPI AMOLED 368x448 |
+| Touch | FT5x06 capacitive touch |
+| Interface | Quad SPI |
+
+## Software Dependencies
+
+### GPS Sender (Arduino)
+
+Install via Arduino Library Manager:
+
+| Library | Version | Purpose |
+|---------|---------|---------|
+| SparkFun u-blox GNSS Arduino Library | v2.2.28+ | GNSS communication |
+| ESPAsyncWebServer | Latest | HTTP server |
+| AsyncTCP | Latest | Async TCP support |
+| ArduinoJson | v7+ | JSON serialization |
+| ElegantOTA | Latest | OTA updates |
+
+### Receivers (ESPHome)
+
+- ESPHome 2024.1.0 or newer
+- ESP-IDF framework
 
 ## Installation
 
-### 1. Sender (Firmware)
+### GPS Sender Setup
 
-**Dependencies:**
-Install the following libraries via Arduino Library Manager or PlatformIO:
-- `SparkFun u-blox GNSS Arduino Library`
-- `ESPAsyncWebServer` & `AsyncTCP` (or `AsyncTCP32` for S3/C3)
-- `ArduinoJson`
-- `ElegantOTA`
+1. **Clone the repository**
 
-**Configuration (`Config.h`):**
-Edit `Config.h` to match your hardware and network:
-```cpp
-// Network
-const char* const WIFI_SSID = "Your_SSID"; // Leave empty for AP Mode
-const char* const WIFI_PASS = "Your_Pass";
-
-// Pins (Check your board's pinout!)
-#define I2C_SDA 21 // Common for ESP32 WROOM
-#define I2C_SCL 22
+```bash
+git clone https://github.com/yourusername/esp32-gps-broadcast.git
+cd esp32-gps-broadcast
 ```
 
-**Build & Upload:**
-Select your board in Arduino IDE/PlatformIO and upload `ESP32-NINA-GPS.ino`.
+2. **Configure hardware pins** in `GPS Sender - XIAO ESP32S3/Config.h`:
 
-### 2. Receiver (ESPHome)
+```cpp
+// I2C pins for GNSS module
+#define I2C_SDA 5
+#define I2C_SCL 6
 
-![Receiver Device](Receiver/Receiver.jpg)
+// LED pin
+#define LED_PIN 21
+```
 
-A complete ESPHome configuration is provided in the `Receiver/` directory.
+3. **Configure WiFi** (optional) in `Config.h`:
 
-1.  Install [ESPHome](https://esphome.io/).
-2.  Copy `Receiver/esphome_receiver.yaml` to your ESPHome configuration directory.
-3.  Edit the YAML to set your WiFi credentials and encryption keys.
-4.  Flash the receiver device:
-    ```bash
-    esphome run esphome_receiver.yaml
-    ```
-5.  *Note:* The receiver must add the Sender's MAC address in the `espnow -> peers` section if `auto_add_peer` is disabled, though the current config uses `auto_add_peer: true`.
+```cpp
+const char* const WIFI_SSID = "YourNetworkSSID";
+const char* const WIFI_PASS = "YourNetworkPassword";
+```
+
+4. **Configure ESP-NOW receivers** in `EspNowSender.cpp`:
+
+```cpp
+// Replace with your receiver MAC addresses
+uint8_t broadcastAddress1[] = {0xCC, 0xBA, 0x97, 0xF3, 0xC7, 0x28};
+uint8_t broadcastAddress2[] = {0x30, 0xED, 0xA0, 0xAE, 0x0D, 0x60};
+```
+
+5. **Build and upload** using Arduino IDE or the provided PowerShell script:
+
+```powershell
+# Using the build script
+cd "GPS Sender - XIAO ESP32S3"
+.\compile-and-upload.ps1 -ComPort "COM11"
+
+# Or compile only for OTA update
+.\compile-and-upload.ps1 -SkipUpload -OutputFolder "C:\path\to\output"
+```
+
+### Receiver Setup
+
+1. **Install ESPHome**
+
+```bash
+pip install esphome
+```
+
+2. **Configure the receiver YAML**
+
+For ESP32-C6 LCD:
+```bash
+cd receiver-ESP32-C6-LCD-1.47
+```
+
+For ESP32-S3 AMOLED:
+```bash
+cd receiver-ESP32-S3-Touch-AMOLED-1.8
+```
+
+3. **Update the sender MAC address** in the YAML file:
+
+```yaml
+espnow:
+  peers:
+    - "10:B4:1D:EA:E0:68"  # Replace with your sender's MAC
+```
+
+4. **Update WiFi credentials**:
+
+```yaml
+wifi:
+  ssid: "YourNetworkSSID"
+  password: "YourNetworkPassword"
+```
+
+5. **Flash the receiver**:
+
+```bash
+esphome run receiver-ESP32-C6-LCD-1.47.yaml
+# or
+esphome run receiver-ESP32-S3-Touch-AMOLED-1.8.yaml
+```
+
+## Configuration
+
+### GPS Sender Configuration Options
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `WIFI_SSID` | Empty | Station mode WiFi SSID |
+| `WIFI_PASS` | Empty | Station mode WiFi password |
+| `AP_SSID` | "ESP32-GPS" | Access Point SSID |
+| `AP_PASS` | NULL | Access Point password (open if NULL) |
+| `TCP_PORT` | 2947 | TCP server port |
+| `WEB_PORT` | 80 | HTTP server port |
+| `I2C_SDA` | 5 | I2C data pin |
+| `I2C_SCL` | 6 | I2C clock pin |
+| `LED_PIN` | 21 | Status LED pin |
+
+### Runtime Configuration
+
+The following can be changed via the web interface:
+
+- **LED Mode**: Off, On, Blink on GPS Read, Blink on Fix, Blink on Movement
+- **Update Rate**: 1s, 5s, 10s, 30s
+- **WiFi Credentials**: Can be updated and saved to flash
 
 ## Usage
 
-**Web Dashboard:**
-Navigate to `http://<ESP32_IP>` to view status.
+### Accessing the Web Dashboard
 
-**TCP Stream:**
-Connect via NetGPS/GPSD clients to `<ESP32_IP>:2947`.
+1. Connect to the ESP32's access point (`ESP32-GPS` by default) or ensure both devices are on the same network.
 
-**ESP-NOW:**
-The device automatically broadcasts GPS updates. Ensure receivers are on the same WiFi channel (often channel 1 by default if not connected to WiFi, or the router's channel if connected).
+2. Navigate to the device IP address in a web browser:
+   - Access Point mode: `http://192.168.4.1`
+   - Station mode: Check serial output for assigned IP
+
+### Connecting TCP Clients
+
+The TCP server on port 2947 supports two modes:
+
+**GPSD Mode** (send `?WATCH={"enable":true}` to activate):
+- Returns JSON TPV (Time-Position-Velocity) messages
+
+**NMEA Mode** (default):
+- Returns standard NMEA sentences (GPRMC, GPGGA, GPGSA)
+
+Example using netcat:
+```bash
+nc 192.168.1.100 2947
+```
+
+### OTA Updates
+
+1. Navigate to `http://<device-ip>/update`
+2. Select the firmware binary file
+3. Wait for upload and automatic reboot
+
+## Web Dashboard
+
+The web dashboard provides:
+
+- **Position Panel**: Latitude, longitude, altitude with copy buttons
+- **Navigation Panel**: Compass display, speed, accuracy values
+- **Signal Quality Panel**: Satellite counts, DOP values, uptime
+- **Configuration Panel**: LED mode, update rate, network info
+- **Map Panel**: Simple world map with position indicator
+- **WiFi Setup Panel**: Network scanning and credential storage
+- **System Panel**: ESP-NOW status, statistics reset, OTA access, reboot
+
+## ESP-NOW Protocol
+
+### Packet Structure (Sender to Receiver)
+
+```cpp
+struct GpsEspNowPacket {
+  double lat;           // Latitude in degrees
+  double lon;           // Longitude in degrees
+  float alt;            // Altitude in meters
+  float speed;          // Ground speed in m/s
+  float heading;        // Heading in degrees
+  uint8_t sats;         // Satellites used
+  uint8_t satsVisible;  // Satellites visible
+  uint8_t fixType;      // 0=No fix, 1=DR, 2=2D, 3=3D
+  char localTime[10];   // Local time string "HH:MM:SS"
+  float pdop;           // Position DOP
+  float hdop;           // Horizontal DOP
+  float vdop;           // Vertical DOP
+  float hAcc;           // Horizontal accuracy (m)
+  float vAcc;           // Vertical accuracy (m)
+  uint32_t stationIp;   // Sender's IP address
+  uint32_t pingCounter; // Sequence number
+};
+```
+
+### Pong Response (Receiver to Sender)
+
+```cpp
+struct PongPacket {
+  uint32_t pingCounter; // Echo of received ping counter
+};
+```
+
+### Connection Monitoring
+
+- Sender increments `pingCounter` with each transmission
+- Receivers echo back the counter in a pong response
+- Sender tracks last response time per receiver
+- Receivers marked inactive after 10 second timeout
+
+## TCP Server Protocol
+
+### NMEA Output (Default)
+
+Standard NMEA 0183 sentences:
+
+- **GPRMC**: Recommended minimum specific GPS data
+- **GPGGA**: GPS fix data
+- **GPGSA**: GPS DOP and active satellites
+
+### GPSD JSON Output
+
+Send `?WATCH={"enable":true}` to receive JSON messages:
+
+```json
+{
+  "class": "TPV",
+  "device": "/dev/i2c",
+  "mode": 3,
+  "time": "2024-01-15T12:34:56Z",
+  "lat": 38.758140,
+  "lon": -90.571820,
+  "alt": 152.300,
+  "speed": 0.520,
+  "track": 45.00
+}
+```
 
 ## Directory Structure
 
-- `ESP32-NINA-GPS.ino`: Main entry point.
-- `Config.h`: User configuration.
-- `GpsLogic.*`: GNSS polling and parsing.
-- `EspNowSender.*`: ESP-NOW broadcast logic.
-- `TcpServer.*`: TCP socket handling.
-- `WebServer.*`: HTTP server and dashboard assets.
-- `Receiver/`: ESPHome YAML configuration for receiver nodes.
+```
+.
+├── GPS Sender - XIAO ESP32S3/
+│   ├── GPS Sender - XIAO ESP32S3.ino  # Main sketch
+│   ├── Config.h                        # Hardware configuration
+│   ├── Types.h                         # Data structures
+│   ├── Context.h                       # Global state declarations
+│   ├── GpsLogic.cpp/.h                 # GNSS polling and parsing
+│   ├── EspNowSender.cpp/.h             # ESP-NOW broadcast logic
+│   ├── TcpServer.cpp/.h                # TCP socket server
+│   ├── WebServer.cpp/.h                # HTTP server and dashboard
+│   ├── LedControl.cpp/.h               # LED indicator control
+│   ├── Storage.cpp/.h                  # Persistent statistics
+│   └── compile-and-upload.ps1          # Build script
+│
+├── receiver-ESP32-C6-LCD-1.47/
+│   ├── receiver-ESP32-C6-LCD-1.47.yaml # ESPHome configuration
+│   └── huge_app.csv                    # Partition table
+│
+├── receiver-ESP32-S3-Touch-AMOLED-1.8/
+│   ├── receiver-ESP32-S3-Touch-AMOLED-1.8.yaml
+│   └── atkinson_48.c                   # Custom font
+│
+└── README.md
+```
+
+## Troubleshooting
+
+### GPS Module Not Detected
+
+- Verify I2C connections (SDA, SCL, VCC, GND)
+- Check I2C address (default 0x42 for u-blox)
+- Ensure adequate power supply to the GNSS module
+- Check serial output for initialization messages
+
+### No GPS Fix
+
+- Ensure clear sky view for the antenna
+- Wait up to 30 seconds for cold start acquisition
+- Verify antenna connection if using external antenna
+- Check that the GNSS module has battery backup for faster subsequent fixes
+
+### ESP-NOW Not Working
+
+- Verify MAC addresses match between sender and receiver configurations
+- Ensure both devices are on the same WiFi channel (or channel 0 for auto)
+- Check that `numReceivers` constant matches the number of configured receivers
+- Monitor serial output for ESP-NOW initialization status
+
+### Web Dashboard Not Loading
+
+- Verify WiFi connection
+- Check that port 80 is not blocked
+- Try accessing via Access Point mode if station mode fails
+- Clear browser cache and try again
+
+### OTA Update Fails
+
+- Ensure stable WiFi connection during update
+- Verify binary file is correct for your board
+- Check that flash has sufficient space
+- Try reducing sketch size or using larger partition scheme
