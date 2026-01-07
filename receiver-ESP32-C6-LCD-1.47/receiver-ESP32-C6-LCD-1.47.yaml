@@ -1,19 +1,19 @@
 # Enable Home Assistant API
 api:
   encryption:
-    key: "6AP/bK7MqSIJNfSRmso8I9B/TozaPNjcitl7EPAJn2M="
+    key: "YOUR_API_ENCRYPTION_KEY_HERE"
 
 ota:
   - platform: esphome
-    password: "0c8f931e8dee71af4312cab592e4b2a9"
+    password: "YOUR_OTA_PASSWORD_HERE"
 
 wifi:
-  ssid: "IoT"
-  password: "kkkkkkkk"
+  ssid: "YOUR_WIFI_SSID"
+  password: "YOUR_WIFI_PASSWORD"
   power_save_mode: none
   ap:
     ssid: "ESP32C6-LCD Fallback"
-    password: "kkkkkkkk"
+    password: "YOUR_FALLBACK_PASSWORD"
 
 captive_portal:
 
