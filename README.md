@@ -1,6 +1,6 @@
-# ESP32 GPS Broadcast System
+# ESP32 GPS for NINA
 
-A multi-protocol GPS data distribution system built on ESP32. This project reads GNSS data from a u-blox module and distributes it via TCP, HTTP, and ESP-NOW to connected clients and remote displays.
+A GPS system built on ESP32. This project reads GNSS data from a u-blox module and distributes it via TCP to NINA, HTTP, and ESP-NOW to connected clients and remote displays.
 
 ![Dashboard](/images/dashboard.png)
 
