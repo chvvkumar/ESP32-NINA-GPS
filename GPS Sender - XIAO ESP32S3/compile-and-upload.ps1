@@ -1,6 +1,10 @@
 # ESP32 GPS - Compile and Upload Script
 # This script compiles and uploads the sketch to ESP32 Dev Module
 # 
+# Usage Examples:
+# .\compile-and-upload.ps1 -ComPort "COM3"
+# .\compile-and-upload.ps1 -SkipUpload -OutputFolder "C:\Users\Kumar\Desktop\New folder"
+
 # Parameters
 param(
     [string]$ComPort = "COM11",
@@ -11,8 +15,9 @@ param(
 )
 
 # Auto-detect script directory and sketch path
+# Script is located in: GPS Sender - XIAO ESP32S3/
 $SCRIPT_DIR = Split-Path -Parent $MyInvocation.MyCommand.Path
-$SKETCH_NAME = "ESP32-NINA-GPS.ino"
+$SKETCH_NAME = "GPS Sender - XIAO ESP32S3.ino"
 $SKETCH_PATH = Join-Path $SCRIPT_DIR $SKETCH_NAME
 
 # Generate unique build path based on sketch location

@@ -65,6 +65,18 @@ void setup() {
 }
 
 void loop() {
+  // PRIORITY 1: Handle OTA updates immediately - call multiple times for responsiveness
+  webLoop();
+  webLoop();
+  webLoop();
+  
+  // Skip all other activities during OTA update
+  if (otaInProgress) {
+    webLoop(); // Focus entirely on OTA
+    delay(10); // Small delay to let OTA process
+    return;
+  }
+  
   bool shouldBroadcast = false;
 
   // GPS Polling Loop
@@ -73,6 +85,7 @@ void loop() {
     pollGPS();
     gpsData.cpuTemp = temperatureRead();
     sendGpsDataViaEspNow();
+    checkEspNowClientTimeouts();  // Check for client timeouts after sending
     shouldBroadcast = true;
   }
   
@@ -93,6 +106,9 @@ void loop() {
     connectedPrinted = true;
   }
   
+  // Call webLoop again at the end for responsiveness
   webLoop();
-  delay(1);
+  
+  // Minimal delay to prevent watchdog issues
+  yield();
 }

@@ -3,5 +3,6 @@
 
 void setupWeb();
 void webLoop();
+bool isOTAUpdating();
 
 #endif

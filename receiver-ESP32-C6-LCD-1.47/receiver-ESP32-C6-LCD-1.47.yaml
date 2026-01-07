@@ -1,19 +1,19 @@
 # Enable Home Assistant API
 api:
   encryption:
-    key: "REPLACE_WITH_API_KEY"
+    key: "6AP/bK7MqSIJNfSRmso8I9B/TozaPNjcitl7EPAJn2M="
 
 ota:
   - platform: esphome
-    password: "REPLACE_WITH_OTA_PASSWORD"
+    password: "0c8f931e8dee71af4312cab592e4b2a9"
 
 wifi:
-  ssid: "REPLACE_WITH_WIFI_SSID"
-  password: "REPLACE_WITH_WIFI_PASSWORD"
+  ssid: "IoT"
+  password: "kkkkkkkk"
   power_save_mode: none
   ap:
     ssid: "ESP32C6-LCD Fallback"
-    password: "REPLACE_WITH_AP_PASSWORD"
+    password: "kkkkkkkk"
 
 captive_portal:
 
@@ -38,7 +38,6 @@ esp32:
       CONFIG_OPENTHREAD_ENABLED: n
       CONFIG_USE_MINIMAL_MDNS: y
       CONFIG_ESP_WIFI_ESPNOW_MAX_ENCRYPT_NUM: "7"
-      # Optimization settings kept as requested
       COMPILER_OPTIMIZATION_SIZE: y
       COMPILER_OPTIMIZATION_LEVEL_RELEASE: y
       CONFIG_COMPILER_OPTIMIZATION_ASSERTIONS_DISABLE: y
@@ -52,14 +51,12 @@ esphome:
     name: "Waveshare.ESP32-C6-LCD-1-47in"
     version: "1.0"
   platformio_options:
-    # CRITICAL: Ensures enough Flash space for LVGL
     board_build.partitions: huge_app.csv
     board_build.flash_mode: dio
     build_flags:
       - "-DI2C_NUM_1=I2C_NUM_0"
-      - "-DBOARD_HAS_PSRAM"
       - "-Wl,-Map,output.map"
-    board_build.arduino.memory_type: qio_opi
+      # REMOVED PSRAM FLAGS causing the boot loop
   
   on_boot:
     priority: 600
@@ -73,16 +70,27 @@ esphome:
           blue: !lambda "return id(idle_blue).state / 255.0;"
       - delay: 2s
       - lambda: |-
-          // Update receiver IP address on display
-          auto ip_str = id(wifi_ip_address).state;
-          lv_label_set_text(id(value_receiver_ip), ip_str.c_str());
+          // Initialize bar range from history for all pages
+          int max_hist = (int)id(gps_max_sats).state;
+          if (max_hist < 10) max_hist = 24; 
+          
+          // Safety check: ensure objects exist before calling LVGL
+          if (id(lbl_sats_home) != nullptr) {
+             lv_bar_set_range(id(lbl_sats_home), 0, max_hist);
+             lv_obj_invalidate(id(lbl_sats_home));
+          }
+          if (id(lbl_sats_accuracy) != nullptr) {
+             lv_bar_set_range(id(lbl_sats_accuracy), 0, max_hist);
+             lv_obj_invalidate(id(lbl_sats_accuracy));
+          }
+
       # Restore the last displayed LVGL page
       - delay: 500ms
       - if:
           condition:
-            lambda: 'return id(display_page).has_state() && id(display_page).current_option() == "GPS Position";'
+            lambda: 'return id(display_page).has_state() && id(display_page).current_option() == "Home";'
           then:
-            - lvgl.page.show: page_position
+            - lvgl.page.show: page_home
       - if:
           condition:
             lambda: 'return id(display_page).has_state() && id(display_page).current_option() == "GPS Accuracy";'
@@ -129,15 +137,16 @@ output:
 button:
   - platform: restart
     name: "Reboot"
-    internal: true
+    internal: false
 
 # =========================================================================
 #  ESP-NOW CONFIGURATION
 # =========================================================================
 espnow:
+  id: espnow_component
   auto_add_peer: true
   peers:
-    - "AA:BB:CC:DD:EE:FF" 
+    - "10:B4:1D:EA:E0:68"
   
   on_receive:
     - lambda: |-
@@ -157,110 +166,275 @@ espnow:
           float hAcc;
           float vAcc;
           uint32_t stationIp;
+          uint32_t pingCounter;
         };
 
         if (size != sizeof(GpsEspNowPacket)) {
-          ESP_LOGW("espnow", "Received packet size %d, expected %d - ignoring", size, sizeof(GpsEspNowPacket));
-          return;
+          return; 
         }
         
-        ESP_LOGI("espnow", "Received GPS packet successfully");
-
-        // FIX 1: Use memcpy to avoid unaligned memory access crashes/corruption
-        // Creating a local copy ensures the 'double' variables are aligned correctly in memory.
         GpsEspNowPacket packet;
         memcpy(&packet, data, sizeof(GpsEspNowPacket));
-
-        // 1. Publish to Home Assistant Sensors
-        id(gps_lat).publish_state(packet.lat);
-        id(gps_lon).publish_state(packet.lon);
-        id(gps_alt).publish_state(packet.alt);
-        id(gps_speed).publish_state(packet.speed);
-        id(gps_heading).publish_state(packet.heading);
-        id(gps_sats).publish_state(packet.sats);
-        id(gps_sats_visible).publish_state(packet.satsVisible);
-        id(gps_local_time).publish_state(packet.localTime);
-
-        // 2. Determine Fix Status String
-        std::string status = "Unknown";
-        if (packet.fixType == 0) status = "No Fix";
-        else if (packet.fixType == 1) status = "Dead Reckoning";
-        else if (packet.fixType == 2) status = "2D Fix";
-        else if (packet.fixType == 3) status = "3D Fix";
-        id(gps_fix_status).publish_state(status);
         
-        // 3. Update LVGL Display Widgets
-        // FIX 2: Use snprintf for float-to-string conversion (works on ESP-IDF)
-        char final_buf[64];
-
-        // Latitude (5 decimal places)
-        snprintf(final_buf, sizeof(final_buf), "%.5f", packet.lat);
-        lv_label_set_text(id(lat_value), final_buf);
-
-        // Longitude (5 decimal places)
-        snprintf(final_buf, sizeof(final_buf), "%.5f", packet.lon);
-        lv_label_set_text(id(lon_value), final_buf);
-
-        // Altitude (1 decimal place)
-        snprintf(final_buf, sizeof(final_buf), "%.1f m", packet.alt);
-        lv_label_set_text(id(alt_value), final_buf);
-
-        // Standard strings
-        lv_label_set_text(id(lbl_time), packet.localTime);
-        lv_bar_set_value(id(lbl_sats), packet.sats, LV_ANIM_OFF);
-        lv_label_set_text(id(lbl_status), status.c_str());
-
-        snprintf(final_buf, sizeof(final_buf), "%d / %d", packet.sats, packet.satsVisible);
-        lv_label_set_text(id(sat_status), final_buf);
-
-        // 4. Update Page 2 Labels (DOP values, accuracy, heading)
-        snprintf(final_buf, sizeof(final_buf), "%.1f m", packet.hAcc);
-        lv_label_set_text(id(value_hacc), final_buf);
-
-        snprintf(final_buf, sizeof(final_buf), "%.1f m", packet.vAcc);
-        lv_label_set_text(id(value_vacc), final_buf);
-
-        // Convert heading to cardinal direction (16-point compass)
-        const char* directions[] = {"N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE", 
-                                     "S", "SSW", "SW", "WSW", "W", "WNW", "NW", "NNW"};
-        int dir_index = (int)((packet.heading + 11.25) / 22.5) % 16;
-        snprintf(final_buf, sizeof(final_buf), "%.0f° %s", packet.heading, directions[dir_index]);
-        lv_label_set_text(id(value_hdg), final_buf);
-        lv_label_set_text(id(lbl_heading_speed), final_buf);
-
-        snprintf(final_buf, sizeof(final_buf), "%.2f", packet.hdop);
-        lv_label_set_text(id(val_hdop), final_buf);
-
-        snprintf(final_buf, sizeof(final_buf), "%.2f", packet.pdop);
-        lv_label_set_text(id(val_pdop), final_buf);
-
-        snprintf(final_buf, sizeof(final_buf), "%.2f", packet.vdop);
-        lv_label_set_text(id(val_vdop), final_buf);
-
-        // Speed display (convert m/s to mph)
-        float speed_mph = packet.speed * 2.23694;
-        snprintf(final_buf, sizeof(final_buf), "%.1f mph", speed_mph);
-        lv_label_set_text(id(val_speed), final_buf);
-        lv_bar_set_value(id(bar_speed), (int)speed_mph, LV_ANIM_OFF);
-
-        // 6. Extract and display Station IP Address
-        uint8_t ip_bytes[4];
-        ip_bytes[0] = (packet.stationIp >> 0) & 0xFF;
-        ip_bytes[1] = (packet.stationIp >> 8) & 0xFF;
-        ip_bytes[2] = (packet.stationIp >> 16) & 0xFF;
-        ip_bytes[3] = (packet.stationIp >> 24) & 0xFF;
+        id(g_gps_lat) = packet.lat;
+        id(g_gps_lon) = packet.lon;
+        id(g_gps_alt) = packet.alt;
+        id(g_gps_speed) = packet.speed;
+        id(g_gps_heading) = packet.heading;
+        id(g_gps_sats) = packet.sats;
+        id(g_gps_sats_visible) = packet.satsVisible;
+        id(g_gps_fix_type) = packet.fixType;
+        id(g_gps_hdop) = packet.hdop;
+        id(g_gps_pdop) = packet.pdop;
+        id(g_gps_vdop) = packet.vdop;
+        id(g_gps_hacc) = packet.hAcc;
+        id(g_gps_vacc) = packet.vAcc;
         
-        snprintf(final_buf, sizeof(final_buf), "%d.%d.%d.%d", ip_bytes[0], ip_bytes[1], ip_bytes[2], ip_bytes[3]);
-        std::string ip_str(final_buf);
-        id(gps_station_ip).publish_state(ip_str);
-        lv_label_set_text(id(value_gps_ip), final_buf);
-
-        // 7. Trigger LED Alert
-        id(espnow_blink_alert).execute();
+        // Copy raw bytes to char array buffer.
+        memcpy(id(raw_local_time), packet.localTime, 10);
+        id(raw_local_time)[10] = 0; 
+        
+        id(raw_station_ip) = packet.stationIp;
+        id(last_ping_counter) = packet.pingCounter;
+        id(g_gps_data_updated) = true;
+    
+    # Send pong response
+    - espnow.send:
+        address: "10:B4:1D:EA:E0:68"
+        data: !lambda |-
+          struct __attribute__((packed)) PongPacket {
+            uint32_t pingCounter;
+          };
+          PongPacket pong;
+          pong.pingCounter = id(last_ping_counter);
+          return std::vector<uint8_t>((uint8_t*)&pong, (uint8_t*)&pong + sizeof(PongPacket));
 
 # =========================================================================
-#  SENSORS
+#  GLOBALS
 # =========================================================================
+globals:
+  - id: last_ping_counter
+    type: uint32_t
+    restore_value: no
+    initial_value: '0'
+  
+  - id: raw_local_time
+    type: char[11]
+    restore_value: no
+  
+  - id: raw_station_ip
+    type: uint32_t
+    restore_value: no
+    initial_value: '0'
+
+  - id: g_gps_lat
+    type: double
+    restore_value: no
+    initial_value: '0.0'
+  
+  - id: g_gps_lon
+    type: double
+    restore_value: no
+    initial_value: '0.0'
+  
+  - id: g_gps_alt
+    type: float
+    restore_value: no
+    initial_value: '0.0'
+  
+  - id: g_gps_speed
+    type: float
+    restore_value: no
+    initial_value: '0.0'
+  
+  - id: g_gps_heading
+    type: float
+    restore_value: no
+    initial_value: '0.0'
+  
+  - id: g_gps_sats
+    type: uint8_t
+    restore_value: no
+    initial_value: '0'
+  
+  - id: g_gps_sats_visible
+    type: uint8_t
+    restore_value: no
+    initial_value: '0'
+  
+  - id: g_gps_fix_type
+    type: uint8_t
+    restore_value: no
+    initial_value: '0'
+  
+  - id: g_gps_local_time
+    type: std::string
+    restore_value: no
+    initial_value: '"--:--:--"'
+  
+  - id: g_gps_hdop
+    type: float
+    restore_value: no
+    initial_value: '0.0'
+  
+  - id: g_gps_pdop
+    type: float
+    restore_value: no
+    initial_value: '0.0'
+  
+  - id: g_gps_vdop
+    type: float
+    restore_value: no
+    initial_value: '0.0'
+  
+  - id: g_gps_hacc
+    type: float
+    restore_value: no
+    initial_value: '0.0'
+  
+  - id: g_gps_vacc
+    type: float
+    restore_value: no
+    initial_value: '0.0'
+  
+  - id: g_gps_station_ip
+    type: std::string
+    restore_value: no
+    initial_value: '"0.0.0.0"'
+  
+  - id: g_gps_data_updated
+    type: bool
+    restore_value: no
+    initial_value: 'false'
+
+# =========================================================================
+#  INTERVAL
+# =========================================================================
+interval:
+  - interval: 100ms
+    then:
+      - lambda: |-
+          if (!id(g_gps_data_updated)) {
+            return;
+          }
+          id(g_gps_data_updated) = false;
+          
+          // === SAFE STRING CONVERSION IN MAIN LOOP ===
+          id(g_gps_local_time) = std::string(id(raw_local_time));
+          
+          uint8_t ip_bytes[4];
+          ip_bytes[0] = (id(raw_station_ip) >> 0) & 0xFF;
+          ip_bytes[1] = (id(raw_station_ip) >> 8) & 0xFF;
+          ip_bytes[2] = (id(raw_station_ip) >> 16) & 0xFF;
+          ip_bytes[3] = (id(raw_station_ip) >> 24) & 0xFF;
+          char ip_buf[16];
+          snprintf(ip_buf, sizeof(ip_buf), "%d.%d.%d.%d", ip_bytes[0], ip_bytes[1], ip_bytes[2], ip_bytes[3]);
+          id(g_gps_station_ip) = std::string(ip_buf);
+          
+          char buf[64];
+          
+          // Publish to Home Assistant
+          id(gps_lat).publish_state(id(g_gps_lat));
+          id(gps_lon).publish_state(id(g_gps_lon));
+          id(gps_alt).publish_state(id(g_gps_alt));
+          id(gps_speed).publish_state(id(g_gps_speed));
+          id(gps_heading).publish_state(id(g_gps_heading));
+          id(gps_sats).publish_state(id(g_gps_sats));
+          id(gps_sats_visible).publish_state(id(g_gps_sats_visible));
+          id(gps_local_time).publish_state(id(g_gps_local_time));
+          id(gps_station_ip).publish_state(id(g_gps_station_ip));
+          id(gps_connection_status).publish_state("Connected");
+          
+          std::string status = "Unknown";
+          if (id(g_gps_fix_type) == 0) status = "No Fix";
+          else if (id(g_gps_fix_type) == 1) status = "Dead Reckoning";
+          else if (id(g_gps_fix_type) == 2) status = "2D Fix";
+          else if (id(g_gps_fix_type) == 3) status = "3D Fix";
+          id(gps_fix_status).publish_state(status);
+          
+          // === LVGL Updates ===
+          
+          lv_led_on(id(lv_led_status));
+          
+          snprintf(buf, sizeof(buf), "%.5f", id(g_gps_lat));
+          lv_label_set_text(id(lat_value), buf);
+          
+          snprintf(buf, sizeof(buf), "%.5f", id(g_gps_lon));
+          lv_label_set_text(id(lon_value), buf);
+          
+          snprintf(buf, sizeof(buf), "%.1f m", id(g_gps_alt));
+          lv_label_set_text(id(alt_value), buf);
+          
+          lv_label_set_text(id(lbl_time), id(g_gps_local_time).c_str());
+          
+          int current_sats = id(g_gps_sats);
+          int visible_sats = id(g_gps_sats_visible);
+          int max_sats = (int)id(gps_max_sats).state;
+          
+          if (visible_sats > max_sats) {
+            max_sats = visible_sats;
+            id(gps_max_sats).publish_state(max_sats);
+          }
+          
+          int range_max = (visible_sats > 0 ? visible_sats : max_sats);
+          if (range_max <= 0) range_max = 10;
+
+          lv_bar_set_range(id(lbl_sats_home), 0, range_max);
+          lv_bar_set_value(id(lbl_sats_home), current_sats, LV_ANIM_OFF);
+          lv_obj_invalidate(id(lbl_sats_home));
+          
+          lv_bar_set_range(id(lbl_sats_accuracy), 0, range_max);
+          lv_bar_set_value(id(lbl_sats_accuracy), current_sats, LV_ANIM_OFF);
+          lv_obj_invalidate(id(lbl_sats_accuracy));
+          
+          lv_label_set_text(id(lbl_status_home), status.c_str());
+          lv_label_set_text(id(lbl_status_accuracy), status.c_str());
+          
+          snprintf(buf, sizeof(buf), "%d/%d", current_sats, visible_sats);
+          lv_label_set_text(id(sat_status_home), buf);
+          lv_label_set_text(id(sat_status_accuracy), buf);
+          
+          snprintf(buf, sizeof(buf), "%.1f m", id(g_gps_hacc));
+          lv_label_set_text(id(value_hacc), buf);
+          
+          snprintf(buf, sizeof(buf), "%.1f m", id(g_gps_vacc));
+          lv_label_set_text(id(value_vacc), buf);
+          
+          const char* directions[] = {"N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE", 
+                                       "S", "SSW", "SW", "WSW", "W", "WNW", "NW", "NNW"};
+          int dir_index = (int)((id(g_gps_heading) + 11.25) / 22.5) % 16;
+          if (dir_index < 0) dir_index = 0; 
+          if (dir_index > 15) dir_index = 0;
+
+          snprintf(buf, sizeof(buf), "%.0f° %s", id(g_gps_heading), directions[dir_index]);
+          lv_label_set_text(id(value_hdg), buf);
+          lv_label_set_text(id(lbl_heading_speed), buf);
+          
+          snprintf(buf, sizeof(buf), "%.2f", id(g_gps_hdop));
+          lv_label_set_text(id(val_hdop), buf);
+          
+          snprintf(buf, sizeof(buf), "%.2f", id(g_gps_pdop));
+          lv_label_set_text(id(val_pdop), buf);
+          
+          snprintf(buf, sizeof(buf), "%.2f", id(g_gps_vdop));
+          lv_label_set_text(id(val_vdop), buf);
+          
+          float speed_mph = id(g_gps_speed) * 2.23694;
+          snprintf(buf, sizeof(buf), "%.1f", speed_mph);
+          lv_label_set_text(id(val_speed), buf);
+          lv_bar_set_value(id(bar_speed), (int)speed_mph, LV_ANIM_OFF);
+          
+          lv_label_set_text(id(value_gps_ip), id(g_gps_station_ip).c_str());
+          
+          id(espnow_blink_alert).execute();
+
+  - interval: 500ms
+    then:
+      - lambda: |-
+          if (!id(g_gps_data_updated)) {
+            lv_led_off(id(lv_led_status));
+          }
+
 sensor:
   - platform: homeassistant
     id: outdoor_temp
@@ -315,7 +489,6 @@ sensor:
   - platform: wifi_signal
     name: "WiFi Signal"
     internal: true
-    
 
 text_sensor:
   - platform: wifi_info
@@ -328,7 +501,9 @@ text_sensor:
       on_value:
         then:
           - lambda: |-
-              lv_label_set_text(id(value_receiver_ip), x.c_str());
+              if (x.length() > 0) {
+                 lv_label_set_text(id(value_receiver_ip), x.c_str());
+              }
 
   - platform: template
     id: gps_local_time
@@ -344,8 +519,25 @@ text_sensor:
     id: gps_station_ip
     name: "GPS Station IP"
     internal: true
+  
+  - platform: template
+    id: gps_connection_status
+    name: "GPS Connection Status"
+    internal: true
 
 number:
+  - platform: template
+    name: "Max Satellites History"
+    id: gps_max_sats
+    optimistic: true
+    min_value: 10
+    max_value: 100
+    step: 1
+    initial_value: 24
+    restore_value: true
+    mode: box
+    internal: true
+
   - platform: template
     name: "Display Brightness"
     id: display_brightness
@@ -363,7 +555,19 @@ number:
             id: lcd_backlight
             level: !lambda "return x / 100.0;"
 
-  # --- Alert Config ---
+  - platform: template
+    name: "LED Blink Duration"
+    id: led_blink_duration
+    min_value: 100
+    max_value: 2000
+    step: 100
+    initial_value: 500
+    unit_of_measurement: "ms"
+    optimistic: true
+    restore_value: true
+    mode: box
+    internal: true
+
   - platform: template
     name: "Alert Brightness"
     id: blink_brightness
@@ -424,7 +628,6 @@ number:
     mode: box
     internal: true
 
-  # --- Idle Config ---
   - platform: template
     name: "Idle Brightness"
     id: idle_brightness
@@ -571,20 +774,20 @@ select:
     name: "Display Page"
     id: display_page
     options:
-      - "GPS Position"
+      - "Home"
       - "GPS Accuracy"
       - "Speed"
       - "Network Info"
-    initial_option: "GPS Position"
+    initial_option: "Home"
     optimistic: true
     restore_value: true
     on_value:
       then:
         - if:
             condition:
-              lambda: 'return x == "GPS Position";'
+              lambda: 'return x == "Home";'
             then:
-              - lvgl.page.show: page_position
+              - lvgl.page.show: page_home
         - if:
             condition:
               lambda: 'return x == "GPS Accuracy";'
@@ -602,110 +805,15 @@ select:
               - lvgl.page.show: page_network
 
 # -------------------------------------------------------------------------
-# LVGL CONFIGURATION (V8.x)
+# LVGL CONFIGURATION
 # -------------------------------------------------------------------------
 lvgl:
   pages:
-    - id: page_position
+    - id: page_home
       bg_color: 0x000000
       widgets:
-        - label:
-            id: lbl_lat
-            x: 1
-            y: 45
-            height: 40
-            text: "LAT:"
-            text_color: 0xE10522
-            long_mode: CLIP
-            text_font: montserrat_36
-
-        - label:
-            id: lat_value
-            x: 130
-            y: 45
-            height: 40
-            text: "00.00000"
-            text_color: 0xE10522
-            text_align: RIGHT
-            long_mode: DOT
-            text_font: montserrat_36
-
-        - label:
-            id: lbl_lon
-            x: -1
-            y: 90
-            height: 40
-            text: "LON:"
-            text_color: 0xE10522
-            long_mode: CLIP
-            text_font: montserrat_36
-
-        - label:
-            id: lon_value
-            x: 115
-            y: 90
-            height: 40
-            text: "-00.00000"
-            text_color: 0xE10522
-            text_align: RIGHT
-            long_mode: CLIP
-            text_font: montserrat_36
-
-        - label:
-            id: lbl_alt
-            x: -1
-            y: 135
-            height: 30
-            text: "ALT:"
-            text_color: 0xE10522
-            long_mode: CLIP
-            text_font: montserrat_28
-
-        - label:
-            id: alt_value
-            x: 186
-            y: 135
-            height: 30
-            text: "000.0 m"
-            text_color: 0xE10522
-            text_align: RIGHT
-            long_mode: CLIP
-            text_font: montserrat_28
-
-        - label:
-            id: lbl_time
-            x: 87
-            y: 5
-            text: "00:00:00"
-            text_color: 0xE10522
-            text_align: RIGHT
-            long_mode: CLIP
-            text_font: montserrat_28
-
-        - label:
-            id: lbl_status
-            x: 1
-            y: 10
-            height: 30
-            text: "3D Fix"
-            text_color: 0xE10522
-            text_align: LEFT
-            long_mode: SCROLL
-            text_font: montserrat_20
-
-        - label:
-            id: sat_status
-            x: 221
-            y: 7
-            height: 30
-            text: "00 / 00"
-            text_color: 0xE10522
-            text_align: RIGHT
-            long_mode: SCROLL_CIRCULAR
-            text_font: montserrat_24
-
         - bar:
-            id: lbl_sats
+            id: lbl_sats_home
             x: 0
             y: 0
             width: 316
@@ -715,157 +823,299 @@ lvgl:
             max_value: 50
             indicator:
               bg_color: 0xE10522
-            bg_color: 0x000000
+            bg_color: 0x300707
+
+        - led:
+            id: lv_led_status
+            x: 290
+            y: 10
+            width: 20
+            height: 20
+            color: 0xFF0000
+            brightness: 21%
+
+        - label:
+            id: lbl_status_home
+            x: 1
+            y: 10
+            height: 25
+            text: "3D Fix"
+            text_color: 0xE10522
+            text_align: LEFT
+            long_mode: SCROLL
+            text_font: montserrat_20
+
+        - label:
+            id: sat_status_home
+            x: 200
+            y: 10
+            height: 25
+            text: "00/00"
+            text_color: 0xE10522
+            text_align: RIGHT
+            long_mode: DOT
+            text_font: montserrat_20
+
+        - label:
+            id: lbl_time
+            x: 87
+            y: 8
+            text: "00:00:00"
+            text_color: 0xE10522
+            text_align: CENTER
+            long_mode: CLIP
+            text_font: montserrat_24
 
         - line:
-            id: lv_line_18
+            id: lv_line_home
             x: 0
             y: 30
             width: 320
-            height: 20
+            height: 10
             points:
-              - 5, 10
-              - 315, 10
+              - 5, 5
+              - 315, 5
             line_color: 0xB2061D
             line_rounded: true
+
+        - label:
+            id: lbl_lat
+            x: 1
+            y: 45
+            height: 35
+            text: "LAT:"
+            text_color: 0xE10522
+            long_mode: CLIP
+            text_font: montserrat_32
+
+        - label:
+            id: lat_value
+            x: 100
+            y: 45
+            height: 35
+            text: "00.00000"
+            text_color: 0xE10522
+            text_align: RIGHT
+            long_mode: DOT
+            text_font: montserrat_32
+
+        - label:
+            id: lbl_lon
+            x: 1
+            y: 85
+            height: 35
+            text: "LON:"
+            text_color: 0xE10522
+            long_mode: CLIP
+            text_font: montserrat_32
+
+        - label:
+            id: lon_value
+            x: 100
+            y: 85
+            height: 35
+            text: "-00.00000"
+            text_color: 0xE10522
+            text_align: RIGHT
+            long_mode: CLIP
+            text_font: montserrat_32
+
+        - label:
+            id: lbl_alt
+            x: 1
+            y: 130
+            height: 30
+            text: "ALT:"
+            text_color: 0xE10522
+            long_mode: CLIP
+            text_font: montserrat_28
+
+        - label:
+            id: alt_value
+            x: 186
+            y: 130
+            height: 30
+            text: "000.0 m"
+            text_color: 0xE10522
+            text_align: RIGHT
+            long_mode: CLIP
+            text_font: montserrat_28
 
     - id: page_accuracy
       bg_color: 0x000000
       widgets:
+        - bar:
+            id: lbl_sats_accuracy
+            x: 0
+            y: 0
+            width: 316
+            height: 5
+            value: 25
+            min_value: 0
+            max_value: 50
+            indicator:
+              bg_color: 0xE10522
+            bg_color: 0x300707
+
         - label:
-            id: lbl_hacc
-            x: 2
-            y: 5
-            height: 30
-            text: "H.Acc"
+            id: lbl_status_accuracy
+            x: 1
+            y: 10
+            height: 25
+            text: "3D Fix"
             text_color: 0xE10522
-            long_mode: CLIP
+            text_align: LEFT
+            long_mode: SCROLL
             text_font: montserrat_20
 
         - label:
+            id: sat_status_accuracy
+            x: 230
+            y: 10
+            height: 25
+            text: "00/00"
+            text_color: 0xE10522
+            text_align: RIGHT
+            long_mode: DOT
+            text_font: montserrat_20
+
+        - label:
+            id: lbl_hacc
+            x: 2
+            y: 40
+            height: 20
+            text: "H.Acc"
+            text_color: 0xE10522
+            long_mode: CLIP
+            text_font: montserrat_16
+
+        - label:
             id: lbl_vacc
-            x: 130
-            y: 5
-            height: 30
+            x: 115
+            y: 40
+            height: 20
             text: "V.Acc"
             text_color: 0xE10522
             text_align: CENTER
             long_mode: CLIP
-            text_font: montserrat_20
+            text_font: montserrat_16
 
         - label:
             id: lbl_hdg
-            x: 256
-            y: 5
-            height: 30
+            x: 230
+            y: 40
+            height: 20
             text: "Hdg."
             text_color: 0xE10522
             text_align: RIGHT
             long_mode: CLIP
-            text_font: montserrat_20
-
-        - label:
-            id: lbl_hdop
-            x: 0
-            y: 139
-            height: 30
-            text: "HDOP"
-            text_color: 0xE10522
-            long_mode: CLIP
-
-        - label:
-            id: lbl_pdop
-            x: 130
-            y: 139
-            height: 30
-            text: "PDOP"
-            text_color: 0xE10522
-            text_align: CENTER
-            long_mode: CLIP
-
-        - label:
-            id: lbl_vdop
-            x: 270
-            y: 139
-            height: 30
-            text: "VDOP"
-            text_color: 0xE10522
-            text_align: RIGHT
-            long_mode: CLIP
+            text_font: montserrat_16
 
         - label:
             id: value_hacc
             x: 0
-            y: 35
-            height: 30
+            y: 60
+            height: 25
             text: "00.0 m"
             text_color: 0xE10522
             long_mode: CLIP
-            text_font: montserrat_28
+            text_font: montserrat_24
 
         - label:
             id: value_vacc
-            x: 117
-            y: 35
-            height: 30
+            x: 105
+            y: 60
+            height: 25
             text: "0.0 m"
             text_color: 0xE10522
             text_align: CENTER
             long_mode: CLIP
-            text_font: montserrat_28
+            text_font: montserrat_24
 
         - label:
             id: value_hdg
-            x: 248
-            y: 41
-            height: 30
+            x: 220
+            y: 60
+            height: 25
             text: "000° NNE"
             text_color: 0xE10522
             text_align: RIGHT
-            text_font: montserrat_20
+            text_font: montserrat_16
+
+        - line:
+            id: lv_line_accuracy
+            x: 0
+            y: 88
+            width: 320
+            height: 10
+            points:
+              - 10, 5
+              - 310, 5
+            line_color: 0xE10522
+
+        - label:
+            id: lbl_hdop
+            x: 0
+            y: 140
+            height: 20
+            text: "HDOP"
+            text_color: 0xE10522
+            long_mode: CLIP
+            text_font: montserrat_16
+
+        - label:
+            id: lbl_pdop
+            x: 130
+            y: 140
+            height: 20
+            text: "PDOP"
+            text_color: 0xE10522
+            text_align: CENTER
+            long_mode: CLIP
+            text_font: montserrat_16
+
+        - label:
+            id: lbl_vdop
+            x: 260
+            y: 140
+            height: 20
+            text: "VDOP"
+            text_color: 0xE10522
+            text_align: RIGHT
+            long_mode: CLIP
+            text_font: montserrat_16
 
         - label:
             id: val_hdop
             x: 0
             y: 110
-            height: 30
+            height: 28
             text: "0.00"
             text_color: 0xE10522
             long_mode: CLIP
-            text_font: montserrat_28
+            text_font: montserrat_24
 
         - label:
             id: val_pdop
-            x: 117
+            x: 130
             y: 110
-            height: 30
+            height: 28
             text: "0.00"
             text_color: 0xE10522
             text_align: CENTER
             long_mode: CLIP
-            text_font: montserrat_28
+            text_font: montserrat_24
 
         - label:
             id: val_vdop
-            x: 243
+            x: 250
             y: 110
-            height: 30
+            height: 28
             text: "0.00"
             text_color: 0xE10522
             text_align: RIGHT
             long_mode: CLIP
-            text_font: montserrat_28
-
-        - line:
-            id: lv_line_24
-            x: 0
-            y: 66
-            width: 320
-            height: 40
-            points:
-              - 10, 20
-              - 310, 20
-            line_color: 0xE10522
+            text_font: montserrat_24
 
     - id: page_speed
       bg_color: 0x000000
@@ -873,36 +1123,47 @@ lvgl:
         - label:
             id: val_speed
             x: 0
-            y: 0
+            y: 10
             width: 320
-            text: "0.0 mph"
+            height: 60
+            text: "0.0"
             text_color: 0xE10522
             text_align: CENTER
             long_mode: DOT
             text_font: montserrat_48
 
+        - label:
+            id: lbl_speed_unit
+            x: 0
+            y: 65
+            width: 320
+            text: "mph"
+            text_color: 0xE10522
+            text_align: CENTER
+            text_font: montserrat_20
+
         - bar:
             id: bar_speed
-            x: -3
-            y: 83
+            x: 0
+            y: 95
             width: 320
-            height: 15
+            height: 12
             value: 45
             min_value: 0
-            max_value: 60
+            max_value: 80
             indicator:
               bg_color: 0x9F0419
             bg_color: 0x1F2937
 
         - label:
             id: lbl_heading_speed
-            x: -3
-            y: 128
+            x: 0
+            y: 120
             width: 320
             text: "000° SSW"
             text_color: 0xE10522
             text_align: CENTER
-            text_font: montserrat_32
+            text_font: montserrat_28
 
     - id: page_network
       bg_color: 0x000000
@@ -915,59 +1176,61 @@ lvgl:
             text: "Network Info"
             text_color: 0xE10522
             text_align: CENTER
-            text_font: montserrat_32
+            text_font: montserrat_28
 
         - line:
             id: lv_line_network
             x: 0
-            y: 35
+            y: 32
             width: 320
-            height: 20
+            height: 10
             points:
-              - 10, 10
-              - 310, 10
+              - 10, 5
+              - 310, 5
             line_color: 0xB2061D
             line_rounded: true
 
         - label:
-            id: lbl_receiver_ip_title
-            x: 0
-            y: 60
-            height: 30
-            text: "Rec."
-            text_color: 0xE10522
-            long_mode: CLIP
-            text_font: montserrat_20
-
-        - label:
-            id: value_receiver_ip
-            x: 106
-            y: 60
-            height: 30
-            text: "0.0.0.0"
-            text_color: 0xE10522
-            text_align: RIGHT
-            long_mode: CLIP
-            text_font: montserrat_28
-
-        - label:
             id: lbl_gps_ip_title
             x: 0
-            y: 130
-            height: 30
-            text: "GPS"
+            y: 50
+            height: 25
+            text: "GPS Station"
             text_color: 0xE10522
             long_mode: CLIP
             text_font: montserrat_20
 
         - label:
             id: value_gps_ip
-            x: 106
-            y: 130
+            x: 0
+            y: 75
+            width: 320
             height: 30
             text: "0.0.0.0"
             text_color: 0xE10522
-            text_align: RIGHT
+            text_align: CENTER
+            long_mode: CLIP
+            text_font: montserrat_28
+
+        - label:
+            id: lbl_receiver_ip_title
+            x: 0
+            y: 110
+            height: 25
+            text: "This Device"
+            text_color: 0xE10522
+            long_mode: CLIP
+            text_font: montserrat_20
+
+        - label:
+            id: value_receiver_ip
+            x: 0
+            y: 135
+            width: 320
+            height: 30
+            text: "0.0.0.0"
+            text_color: 0xE10522
+            text_align: CENTER
             long_mode: CLIP
             text_font: montserrat_28
 
@@ -990,18 +1253,30 @@ display:
     rotation: 270
 
 # -------------------------------------------------------------------------
-# FONTS
+# FONTS - CORRECTED IDs to match widgets
 # -------------------------------------------------------------------------
 font:
   - file: "gfonts://Roboto"
-    id: font_16
+    id: montserrat_16
     size: 16
     glyphs: "0123456789.-%ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz :°/"
   - file: "gfonts://Roboto"
-    id: font_20
+    id: montserrat_20
     size: 20
     glyphs: "0123456789.-%ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz :°/"
   - file: "gfonts://Roboto"
-    id: font_32
+    id: montserrat_24
+    size: 24
+    glyphs: "0123456789.-%ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz :°/"
+  - file: "gfonts://Roboto"
+    id: montserrat_28
+    size: 28
+    glyphs: "0123456789.-%ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz :°/"
+  - file: "gfonts://Roboto"
+    id: montserrat_32
     size: 32
+    glyphs: "0123456789.-%ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz :°/"
+  - file: "gfonts://Roboto"
+    id: montserrat_48
+    size: 48
     glyphs: "0123456789.-%ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz :°/"

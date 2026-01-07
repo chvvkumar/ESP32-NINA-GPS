@@ -64,6 +64,19 @@ struct GPSData {
   String espNowStatus = "Disabled";
   String espNowError = "";
   unsigned long espNowLastTxTime = 0;
+  
+  // Per-client ESP-NOW Metrics (up to 3 clients)
+  struct EspNowClientMetrics {
+    uint8_t macAddr[6];
+    bool isActive;
+    unsigned long lastResponseTime;  // Last time we got a pong response
+    uint32_t lastPingReceived;       // Last ping value received back
+  };
+  EspNowClientMetrics espNowClients[3];
+  
+  // Ping-pong mechanism for connection tracking
+  uint32_t espNowPingCounter = 0;    // Incremented with each send
+  const unsigned long espNowTimeoutMs = 10000; // 10 seconds timeout
 
   // Min/Max Statistics
   double altMin = 99999.0;
