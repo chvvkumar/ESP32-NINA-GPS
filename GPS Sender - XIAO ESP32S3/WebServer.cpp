@@ -129,6 +129,7 @@ const char index_html[] PROGMEM = R"rawliteral(
   <div class="container">
     <div class="header">
       <h2>ESP32 GPS Dashboard</h2>
+      <a href="https://github.com/chvvkumar/ESP32-NINA-GPS" target="_blank" style="color: var(--accent); text-decoration: none; font-size: 0.9rem; border: 1px solid var(--accent); padding: 4px 10px; border-radius: 4px;">GitHub</a>
     </div>
 
     <div class="dashboard">
