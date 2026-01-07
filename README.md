@@ -35,14 +35,14 @@ This system consists of two main components:
 
 ```mermaid
 graph TD
-    subgraph Sender [GPS Sender (XIAO ESP32-S3)]
+    subgraph Sender ["GPS Sender (XIAO ESP32-S3)"]
         GNSS[u-blox GNSS Module] --> Logic[GPS Logic<br/>- Position, Speed, Heading<br/>- Satellite Info<br/>- DOP Values<br/>- Accuracy Estimates]
         Logic --> TCP[TCP Server<br/>Port 2947<br/>NMEA/GPSD]
         Logic --> Web[Web Server<br/>Port 80<br/>Dashboard]
         Logic --> ESPNOW[ESP-NOW<br/>Broadcast<br/>Ping Sender]
     end
 
-    subgraph Receiver1 [Receiver #1: ESP32-C6 LCD]
+    subgraph Receiver1 ["Receiver #1: ESP32-C6 LCD"]
         RX1_ESP[ESP-NOW Receiver<br/>- Packet validation<br/>- Pong response sender]
         RX1_HA[Home Assist. API]
         RX1_WiFi[WiFi]
@@ -61,7 +61,7 @@ graph TD
         RX1_LVGL -.-> RX1_LED
     end
 
-    subgraph Receiver2 [Receiver #2: ESP32-S3 AMOLED]
+    subgraph Receiver2 ["Receiver #2: ESP32-S3 AMOLED"]
         RX2_ESP[ESP-NOW Receiver<br/>- Packet validation<br/>- Pong response sender]
         RX2_HA[Home Assist. API]
         RX2_WiFi[WiFi]
