@@ -640,7 +640,7 @@ const char index_html[] PROGMEM = R"rawliteral(
             html += '</div>';
             html += `<div style="display: flex; gap: 8px; font-size: 0.7rem;">`;
             html += `<span style="flex: 1; padding: 3px 8px; background: rgba(255,255,255,0.05); color: ${txColor}; border-radius: 3px; text-align: center;">Last TX: ${txDisplay}</span>`;
-            html += `<span style="flex: 1; padding: 3px 8px; background: rgba(255,255,255,0.05); color: ${pongColor}; border-radius: 3px; text-align: center;">Last RX GPS: ${pongDisplay}</span>`;
+            html += `<span style="flex: 1; padding: 3px 8px; background: rgba(255,255,255,0.05); color: ${pongColor}; border-radius: 3px; text-align: center;">Last RX: ${pongDisplay}</span>`;
             html += '</div>';
             html += '</div>';
         });
