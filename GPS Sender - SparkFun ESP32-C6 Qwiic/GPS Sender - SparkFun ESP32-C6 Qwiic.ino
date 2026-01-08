@@ -98,11 +98,13 @@ void loop() {
     broadcastData();
   }
   
-  // Print Station IP once connected
+  // Print Station IP once connected and disable AP
   static bool connectedPrinted = false;
   if (WiFi.status() == WL_CONNECTED && !connectedPrinted) {
     Serial.print("Station IP: ");
     Serial.println(WiFi.localIP());
+    Serial.println("WiFi connected - disabling AP mode");
+    WiFi.softAPdisconnect(true);
     connectedPrinted = true;
   }
   
