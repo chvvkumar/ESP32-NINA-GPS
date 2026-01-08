@@ -98,12 +98,29 @@ void loop() {
     broadcastData();
   }
   
-  // Print Station IP once connected
+  // WiFi connection management
   static bool connectedPrinted = false;
-  if (WiFi.status() == WL_CONNECTED && !connectedPrinted) {
-    Serial.print("Station IP: ");
-    Serial.println(WiFi.localIP());
-    connectedPrinted = true;
+  static bool apDisabled = false;
+  static unsigned long lastReconnectAttempt = 0;
+  
+  if (WiFi.status() == WL_CONNECTED) {
+    // First time connected - print IP and disable AP
+    if (!connectedPrinted) {
+      Serial.print("Station IP: ");
+      Serial.println(WiFi.localIP());
+      Serial.println("WiFi connected - disabling AP mode");
+      WiFi.softAPdisconnect(true);
+      connectedPrinted = true;
+      apDisabled = true;
+    }
+  } else if (apDisabled) {
+    // Lost connection - attempt reconnect every 30 seconds
+    if (millis() - lastReconnectAttempt >= 30000) {
+      lastReconnectAttempt = millis();
+      Serial.println("WiFi disconnected - attempting reconnect...");
+      WiFi.disconnect();
+      WiFi.reconnect();
+    }
   }
   
   // Call webLoop again at the end for responsiveness
