@@ -70,6 +70,7 @@ struct GPSData {
     uint8_t macAddr[6];
     bool isActive;
     unsigned long lastResponseTime;  // Last time we got a pong response
+    unsigned long lastTransmitTime;  // Last time we successfully transmitted to this client
     uint32_t lastPingReceived;       // Last ping value received back
   };
   EspNowClientMetrics espNowClients[3];

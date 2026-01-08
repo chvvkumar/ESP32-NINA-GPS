@@ -5,4 +5,8 @@ void setupWeb();
 void webLoop();
 bool isOTAUpdating();
 
+// Web Serial Logging
+void webSerialLog(const String& message);
+void webSerialBegin();
+
 #endif

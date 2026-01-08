@@ -15,6 +15,19 @@ volatile bool otaInProgress = false;
 #include "Storage.h"
 
 AsyncWebServer webServer(WEB_PORT);
+AsyncWebSocket wsSerial("/ws/serial");
+
+// Circular buffer for serial logs
+#define LOG_BUFFER_SIZE 100
+#define LOG_LINE_MAX_LENGTH 256
+struct LogEntry {
+  char message[LOG_LINE_MAX_LENGTH];
+  unsigned long timestamp;
+};
+LogEntry logBuffer[LOG_BUFFER_SIZE];
+int logBufferHead = 0;
+int logBufferCount = 0;
+SemaphoreHandle_t logMutex = NULL;
 
 const char index_html[] PROGMEM = R"rawliteral(
 <!DOCTYPE html>
@@ -118,6 +131,20 @@ const char index_html[] PROGMEM = R"rawliteral(
     .map-btn:hover { background: var(--accent); color: black; border-color: var(--accent); }
     
     .map-info-overlay { position: absolute; top: 10px; left: 10px; background: rgba(0,0,0,0.6); padding: 4px 8px; border-radius: 4px; font-size: 0.7rem; color: var(--text-muted); pointer-events: none; border: 1px solid rgba(255,255,255,0.1); }
+
+    /* Serial Logs */
+    .log-container { height: 350px; overflow-y: auto; background: rgba(0,0,0,0.3); border-radius: 8px; padding: 10px; font-family: 'Courier New', monospace; font-size: 0.75rem; border: 1px solid rgba(255,255,255,0.05); }
+    .log-container::-webkit-scrollbar { width: 8px; }
+    .log-container::-webkit-scrollbar-track { background: rgba(0,0,0,0.2); border-radius: 4px; }
+    .log-container::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.2); border-radius: 4px; }
+    .log-container::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.3); }
+    .log-line { padding: 2px 0; border-bottom: 1px solid rgba(255,255,255,0.02); white-space: pre-wrap; word-wrap: break-word; }
+    .log-time { color: var(--text-muted); margin-right: 10px; }
+    .log-msg { color: var(--text-main); }
+    .log-controls { display: flex; gap: 8px; margin-bottom: 10px; }
+    .ws-status { display: flex; align-items: center; gap: 6px; font-size: 0.75rem; padding: 4px 10px; background: rgba(255,255,255,0.05); border-radius: 12px; }
+    .ws-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--danger); box-shadow: 0 0 6px currentColor; }
+    .ws-dot.connected { background: var(--success); }
 
     @media (max-width: 800px) {
       .big-value { font-size: 1.6rem; }
@@ -333,6 +360,23 @@ const char index_html[] PROGMEM = R"rawliteral(
         </div>
         <button class="btn btn-muted" style="width: 100%; border-color: rgba(213, 0, 0, 0.4); color: rgba(255, 100, 100, 0.8);" onclick="rebootEsp()">Reboot System</button>
       </div>
+
+      <div class="card" style="grid-column: span 3;">
+        <div class="card-title" style="align-items: center;">
+          <span>Serial Logs</span>
+          <div class="ws-status">
+            <div class="ws-dot" id="wsDot"></div>
+            <span id="wsStatus">Disconnected</span>
+          </div>
+        </div>
+        <div class="log-controls">
+          <button class="btn-muted" style="flex: 1;" onclick="toggleAutoScroll()">
+            <span id="autoScrollText">Auto-Scroll: ON</span>
+          </button>
+          <button class="btn-muted" style="flex: 1;" onclick="clearLogs()">Clear Logs</button>
+        </div>
+        <div class="log-container" id="logContainer"></div>
+      </div>
     </div>
   </div>
 
@@ -530,13 +574,57 @@ const char index_html[] PROGMEM = R"rawliteral(
         html += '<div class="coord-label" style="margin-bottom: 10px;">ESP-NOW CLIENTS</div>';
         
         clients.forEach((client, idx) => {
-            const statusColor = client.connected ? 'var(--success)' : 'var(--text-muted)';
-            const statusText = client.connected ? 'CONNECTED' : 'DISCONNECTED';
+            // Format transmission time
+            const txSeconds = client.secondsSinceLastTx;
+            let txDisplay, txColor;
+            
+            if (txSeconds >= 9999) {
+                txDisplay = 'Never';
+                txColor = 'var(--text-muted)';
+            } else if (txSeconds < 60) {
+                txDisplay = txSeconds + 's';
+                txColor = txSeconds < 10 ? 'var(--success)' : (txSeconds < 30 ? 'var(--warning)' : 'var(--danger)');
+            } else if (txSeconds < 3600) {
+                const mins = Math.floor(txSeconds / 60);
+                const secs = txSeconds % 60;
+                txDisplay = mins + 'm ' + secs + 's';
+                txColor = 'var(--danger)';
+            } else {
+                const hours = Math.floor(txSeconds / 3600);
+                const mins = Math.floor((txSeconds % 3600) / 60);
+                txDisplay = hours + 'h ' + mins + 'm';
+                txColor = 'var(--danger)';
+            }
+            
+            // Format pong response time
+            const pongSeconds = client.secondsSinceLastPong;
+            let pongDisplay, pongColor;
+            
+            if (pongSeconds >= 9999) {
+                pongDisplay = 'Never';
+                pongColor = 'var(--text-muted)';
+            } else if (pongSeconds < 60) {
+                pongDisplay = pongSeconds + 's';
+                pongColor = pongSeconds < 10 ? 'var(--success)' : (pongSeconds < 30 ? 'var(--warning)' : 'var(--danger)');
+            } else if (pongSeconds < 3600) {
+                const mins = Math.floor(pongSeconds / 60);
+                const secs = pongSeconds % 60;
+                pongDisplay = mins + 'm ' + secs + 's';
+                pongColor = 'var(--danger)';
+            } else {
+                const hours = Math.floor(pongSeconds / 3600);
+                const mins = Math.floor((pongSeconds % 3600) / 60);
+                pongDisplay = hours + 'h ' + mins + 'm';
+                pongColor = 'var(--danger)';
+            }
             
             html += '<div style="background: rgba(255,255,255,0.03); padding: 10px; border-radius: 8px; margin-bottom: 8px;">';
-            html += `<div style="display: flex; justify-content: space-between; align-items: center;">`;
+            html += `<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px;">`;
             html += `<span style="font-family: 'Courier New', monospace; font-size: 0.8rem; color: var(--accent);">${client.mac}</span>`;
-            html += `<span style="font-size: 0.7rem; padding: 3px 8px; background: ${statusColor}; color: #000; border-radius: 4px; font-weight: bold;">${statusText}</span>`;
+            html += '</div>';
+            html += `<div style="display: flex; gap: 8px; font-size: 0.7rem;">`;
+            html += `<span style="flex: 1; padding: 3px 8px; background: rgba(255,255,255,0.05); color: ${txColor}; border-radius: 3px; text-align: center;">TX: ${txDisplay}</span>`;
+            html += `<span style="flex: 1; padding: 3px 8px; background: rgba(255,255,255,0.05); color: ${pongColor}; border-radius: 3px; text-align: center;">Pong: ${pongDisplay}</span>`;
             html += '</div>';
             html += '</div>';
         });
@@ -711,6 +799,93 @@ const char index_html[] PROGMEM = R"rawliteral(
         resizeMap();
     }, 200);
 
+    // ==========================================
+    // WEB SERIAL LOGGING
+    // ==========================================
+    let ws = null;
+    let autoScroll = true;
+    const logContainer = document.getElementById('logContainer');
+    const wsDot = document.getElementById('wsDot');
+    const wsStatus = document.getElementById('wsStatus');
+    
+    function connectWebSocket() {
+      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      const wsUrl = `${protocol}//${window.location.host}/ws/serial`;
+      
+      ws = new WebSocket(wsUrl);
+      
+      ws.onopen = () => {
+        console.log('WebSocket connected');
+        wsDot.classList.add('connected');
+        wsStatus.textContent = 'Connected';
+      };
+      
+      ws.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          addLogLine(data.msg, data.ts);
+        } catch (e) {
+          console.error('Failed to parse log message:', e);
+        }
+      };
+      
+      ws.onerror = (error) => {
+        console.error('WebSocket error:', error);
+      };
+      
+      ws.onclose = () => {
+        console.log('WebSocket disconnected');
+        wsDot.classList.remove('connected');
+        wsStatus.textContent = 'Disconnected';
+        
+        // Attempt reconnect after 5 seconds
+        setTimeout(connectWebSocket, 5000);
+      };
+    }
+    
+    function addLogLine(message, timestamp) {
+      const line = document.createElement('div');
+      line.className = 'log-line';
+      
+      const time = new Date(timestamp);
+      const timeStr = time.toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
+      const msStr = String(time.getMilliseconds()).padStart(3, '0');
+      
+      line.innerHTML = `<span class="log-time">[${timeStr}.${msStr}]</span><span class="log-msg">${escapeHtml(message)}</span>`;
+      
+      logContainer.appendChild(line);
+      
+      // Limit to 500 lines
+      while (logContainer.children.length > 500) {
+        logContainer.removeChild(logContainer.firstChild);
+      }
+      
+      if (autoScroll) {
+        logContainer.scrollTop = logContainer.scrollHeight;
+      }
+    }
+    
+    function escapeHtml(text) {
+      const div = document.createElement('div');
+      div.textContent = text;
+      return div.innerHTML;
+    }
+    
+    function toggleAutoScroll() {
+      autoScroll = !autoScroll;
+      document.getElementById('autoScrollText').textContent = `Auto-Scroll: ${autoScroll ? 'ON' : 'OFF'}`;
+      if (autoScroll) {
+        logContainer.scrollTop = logContainer.scrollHeight;
+      }
+    }
+    
+    function clearLogs() {
+      logContainer.innerHTML = '';
+    }
+    
+    // Connect on page load
+    connectWebSocket();
+
   </script>
 </body>
 </html>
@@ -793,22 +968,24 @@ void setupWeb() {
               gpsData.espNowClients[i].macAddr[4],
               gpsData.espNowClients[i].macAddr[5]);
       client["mac"] = macStr;
-      client["connected"] = gpsData.espNowClients[i].isActive;
 
-      // Calculate connection status for UI without stopping the sender
-      bool isConnected = gpsData.espNowClients[i].isActive;
-      unsigned long lastResponse = gpsData.espNowClients[i].lastResponseTime;
-      
-      if (isConnected) {
-        if (lastResponse == 0) {
-          // If never received response, check if system uptime exceeds timeout
-          if (now > gpsData.espNowTimeoutMs) isConnected = false;
-        } else {
-          // Check timeout against last response
-          if (now - lastResponse > gpsData.espNowTimeoutMs) isConnected = false;
-        }
+      // Calculate seconds since last pong was received
+      unsigned long secondsSinceLastPong = 0;
+      if (gpsData.espNowClients[i].lastResponseTime > 0) {
+        secondsSinceLastPong = (now - gpsData.espNowClients[i].lastResponseTime) / 1000;
+      } else {
+        secondsSinceLastPong = 9999; // Never received a pong
       }
-      client["connected"] = isConnected;
+      client["secondsSinceLastPong"] = secondsSinceLastPong;
+      
+      // Calculate seconds since last successful transmission
+      unsigned long secondsSinceLastTx = 0;
+      if (gpsData.espNowClients[i].lastTransmitTime > 0) {
+        secondsSinceLastTx = (now - gpsData.espNowClients[i].lastTransmitTime) / 1000;
+      } else {
+        secondsSinceLastTx = 9999; // Never transmitted
+      }
+      client["secondsSinceLastTx"] = secondsSinceLastTx;
     }
 
     unsigned long uptimeMillis = millis();
@@ -921,11 +1098,16 @@ void setupWeb() {
   });
   
   ElegantOTA.begin(&webServer);
+  
+  // Initialize WebSocket for serial logging
+  webSerialBegin();
+  
   webServer.begin();
 }
 
 void webLoop() {
   ElegantOTA.loop();
+  wsSerial.cleanupClients();
 }
 
 bool isOTAUpdating() {
@@ -933,3 +1115,66 @@ bool isOTAUpdating() {
   // ElegantOTA doesn't expose this directly, so we yield frequently during loop
   return false; // Handled by frequent webLoop calls instead
 }
+
+// Web Serial Logging Functions
+void webSerialBegin() {
+  logMutex = xSemaphoreCreateMutex();
+  
+  wsSerial.onEvent([](AsyncWebSocket *server, AsyncWebSocketClient *client, AwsEventType type, void *arg, uint8_t *data, size_t len) {
+    if (type == WS_EVT_CONNECT) {
+      Serial.printf("WebSocket client #%u connected from %s\n", client->id(), client->remoteIP().toString().c_str());
+      
+      // Send buffered logs to new client
+      if (xSemaphoreTake(logMutex, portMAX_DELAY) == pdTRUE) {
+        int count = logBufferCount;
+        int start = (logBufferHead - count + LOG_BUFFER_SIZE) % LOG_BUFFER_SIZE;
+        
+        for (int i = 0; i < count; i++) {
+          int idx = (start + i) % LOG_BUFFER_SIZE;
+          JsonDocument doc;
+          doc["msg"] = logBuffer[idx].message;
+          doc["ts"] = logBuffer[idx].timestamp;
+          
+          String output;
+          serializeJson(doc, output);
+          client->text(output);
+        }
+        xSemaphoreGive(logMutex);
+      }
+    } else if (type == WS_EVT_DISCONNECT) {
+      Serial.printf("WebSocket client #%u disconnected\n", client->id());
+    }
+  });
+  
+  webServer.addHandler(&wsSerial);
+}
+
+void webSerialLog(const String& message) {
+  if (logMutex == NULL) return;
+  
+  if (xSemaphoreTake(logMutex, pdMS_TO_TICKS(100)) == pdTRUE) {
+    // Add to circular buffer
+    strncpy(logBuffer[logBufferHead].message, message.c_str(), LOG_LINE_MAX_LENGTH - 1);
+    logBuffer[logBufferHead].message[LOG_LINE_MAX_LENGTH - 1] = '\0';
+    logBuffer[logBufferHead].timestamp = millis();
+    
+    logBufferHead = (logBufferHead + 1) % LOG_BUFFER_SIZE;
+    if (logBufferCount < LOG_BUFFER_SIZE) {
+      logBufferCount++;
+    }
+    
+    xSemaphoreGive(logMutex);
+    
+    // Send to connected WebSocket clients
+    if (wsSerial.count() > 0) {
+      JsonDocument doc;
+      doc["msg"] = message;
+      doc["ts"] = millis();
+      
+      String output;
+      serializeJson(doc, output);
+      wsSerial.textAll(output);
+    }
+  }
+}
+

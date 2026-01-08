@@ -3,6 +3,7 @@
 #include <WiFi.h>
 #include "EspNowSender.h"
 #include "Context.h" // To access global gpsData
+#include "WebServer.h" // For webSerialLog
 
 // ESP-NOW Direct Point-to-Point Configuration
 // REPLACE WITH YOUR ESPHOME RECEIVER MAC ADDRESS (get from ESPHome device)
@@ -45,11 +46,13 @@ typedef struct __attribute__((packed)) {
 
 // Track which client we're currently sending to
 static int currentSendIndex = -1;
+static unsigned long lastTransmitTimes[3] = {0, 0, 0}; // Track per-client transmission times
 
 // Callback when data is received (pong response from receivers)
 void OnDataReceived(const esp_now_recv_info_t *recv_info, const uint8_t *data, int size) {
   if (size != sizeof(PongPacket)) {
     Serial.printf("Received unexpected packet size: %d\n", size);
+    webSerialLog("ESP-NOW: Received unexpected packet size: " + String(size));
     return;
   }
   
@@ -64,6 +67,7 @@ void OnDataReceived(const esp_now_recv_info_t *recv_info, const uint8_t *data, i
       gpsData.espNowClients[i].isActive = true;
       
       Serial.printf("Pong received from client %d (ping #%u)\n", i + 1, pong.pingCounter);
+      webSerialLog("ESP-NOW: Pong received from client " + String(i + 1) + " (ping #" + String(pong.pingCounter) + ")");
       return;
     }
   }
@@ -151,6 +155,8 @@ void sendGpsDataViaEspNow() {
   // Increment ping counter for this transmission
   gpsData.espNowPingCounter++;
 
+  webSerialLog("ESP-NOW: Sending ping #" + String(gpsData.espNowPingCounter) + " to " + String(numReceivers) + " receiver(s)");
+
   GpsEspNowPacket packet;
   packet.lat = gpsData.lat;
   packet.lon = gpsData.lon;
@@ -174,20 +180,29 @@ void sendGpsDataViaEspNow() {
 
   // Send to all registered receivers
   bool anySuccess = false;
+  unsigned long currentTime = millis();
+  
   for (int i = 0; i < numReceivers; i++) {
     // Always send to allow auto-reconnection, regardless of current status
     esp_err_t result = esp_now_send(receiverMacs[i], (uint8_t *) &packet, sizeof(packet));
     
     if (result == ESP_OK) {
       anySuccess = true;
+      // Track successful transmission time for this specific client
+      gpsData.espNowClients[i].lastTransmitTime = currentTime;
+      lastTransmitTimes[i] = currentTime;
+      webSerialLog("ESP-NOW: Ping sent successfully to client " + String(i + 1));
+    } else {
+      webSerialLog("ESP-NOW: Failed to send ping to client " + String(i + 1));
     }
   }
   
   if (anySuccess) {
-    gpsData.espNowLastTxTime = millis();
+    gpsData.espNowLastTxTime = currentTime;
   } else {
     gpsData.espNowStatus = "Send Error";
     gpsData.espNowError = "esp_now_send returned error";
+    webSerialLog("ESP-NOW: All transmissions failed");
   }
 }
 

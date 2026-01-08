@@ -7,14 +7,17 @@ const char* const WIFI_SSID = "";
 const char* const WIFI_PASS = "";
 
 // Access Point Mode (Create own network)
-const char* const AP_SSID = "ESP32-GPS";
+const char* const AP_SSID = "ESP32-C6-GPS";
 const char* const AP_PASS = NULL;
 
 // Hardware definitions
-#define LED_PIN 21          // Xiao ESP32 S3 onboard LED
+// SparkFun Qwiic Pocket ESP32-C6 Pins
+#define LED_PIN 23          // Blue STAT LED on GPIO 23
 #define LED_BLINK_DURATION_MS 100
-#define I2C_SDA 5
-#define I2C_SCL 6
+
+// I2C Pins for Qwiic Connector on ESP32-C6
+#define I2C_SDA 6
+#define I2C_SCL 7
 
 // Network Ports
 #define TCP_PORT 2947

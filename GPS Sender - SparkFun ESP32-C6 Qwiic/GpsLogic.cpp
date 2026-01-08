@@ -5,6 +5,7 @@
 #include "Context.h"
 #include "LedControl.h"
 #include "Storage.h"
+#include "WebServer.h"
 
 void setupGPS() {
   Wire.begin(I2C_SDA, I2C_SCL);
@@ -82,8 +83,13 @@ void pollGPS() {
     gpsData.firstFixTime = millis();
     gpsData.ttffSeconds = (gpsData.firstFixTime - gpsData.startTime) / 1000;
     
+    webSerialLog("GPS fix acquired");
+    webSerialLog("Satellites: " + String(sats));
+    webSerialLog("TTFF: " + String(gpsData.ttffSeconds) + "s");
+    
     if (!gpsData.configSaved) {
       Serial.println("Fix Obtained! Saving Almanac to Battery Backup...");
+      webSerialLog("Saving GPS configuration to backup...");
       myGNSS.saveConfiguration(); 
       gpsData.configSaved = true;
     }

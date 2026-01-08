@@ -1,9 +1,9 @@
 /**
- * GPS-ESP32 Standalone Firmware (Refactored)
+ * GPS-ESP32 Standalone Firmware (Refactored for SparkFun Qwiic Pocket ESP32-C6)
  * REQUIRED LIBRARIES:
  * 1. SparkFun u-blox GNSS Arduino Library (v2.2.28)
- * 2. ESPAsyncWebServer
- * 3. AsyncTCP
+ * 2. ESPAsyncWebServer (Use the version by mathieucarbou for ESP32-C6 support)
+ * 3. AsyncTCP (Handled by the library above)
  * 4. ArduinoJson
  * 5. Ticker
  * 6. ElegantOTA

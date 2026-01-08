@@ -1,5 +1,5 @@
 # ESP32 GPS - Compile and Upload Script
-# This script compiles and uploads the sketch to ESP32 Dev Module
+# This script compiles and uploads the sketch to SparkFun ESP32-C6 Qwiic Pocket Dev Board
 # 
 # Usage Examples:
 # .\compile-and-upload.ps1 -ComPort "COM3"
@@ -15,9 +15,9 @@ param(
 )
 
 # Auto-detect script directory and sketch path
-# Script is located in: GPS Sender - XIAO ESP32S3/
+# Script is located in: GPS Sender - SparkFun ESP32-C6 Qwiic/
 $SCRIPT_DIR = Split-Path -Parent $MyInvocation.MyCommand.Path
-$SKETCH_NAME = "GPS Sender - XIAO ESP32S3.ino"
+$SKETCH_NAME = "GPS Sender - SparkFun ESP32-C6 Qwiic.ino"
 $SKETCH_PATH = Join-Path $SCRIPT_DIR $SKETCH_NAME
 
 # Generate unique build path based on sketch location
@@ -27,11 +27,11 @@ $BUILD_PATH = Join-Path $env:LOCALAPPDATA "arduino\sketches\$SKETCH_HASH"
 # Standard paths
 $ARDUINO15_PATH = "$env:LOCALAPPDATA\Arduino15"
 
-# Board configuration for Seeed Studio XIAO ESP32S3 (Generic S3 Fallback)
-# Using generic S3 definition since specific board might be missing in older cores
-$FQBN = "esp32:esp32:esp32s3:FlashSize=8M,PartitionScheme=default_8MB,CDCOnBoot=cdc"
-$BOARD = "esp32s3"
-$CHIP = "esp32s3"
+# Board configuration for SparkFun Qwiic Pocket ESP32-C6
+# ESP32-C6 uses RISC-V architecture
+$FQBN = "esp32:esp32:esp32c6:CDCOnBoot=cdc"
+$BOARD = "esp32c6"
+$CHIP = "esp32c6"
 
 # Tool paths (will be detected dynamically)
 $ESP32_PACKAGE = "$ARDUINO15_PATH\packages\esp32"
@@ -109,6 +109,7 @@ if ($ARDUINO_CLI) {
             "esp32s3" { "xtensa-esp32s3-elf-size.exe" }
             "esp32s2" { "xtensa-esp32s2-elf-size.exe" }
             "esp32c3" { "riscv32-esp-elf-size.exe" }
+            "esp32c6" { "riscv32-esp-elf-size.exe" }
             default   { "xtensa-esp32-elf-size.exe" }
         }
         

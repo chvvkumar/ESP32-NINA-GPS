@@ -1,20 +1,28 @@
 # Enable Home Assistant API
 api:
   encryption:
-    key: "YOUR_API_ENCRYPTION_KEY_HERE"
+    key: !secret c6_1.47_lcd_api_encryption_key
 
 ota:
   - platform: esphome
-    password: "YOUR_OTA_PASSWORD_HERE"
+    password: !secret c6_1.47_lcd_ota_password
 
 wifi:
-  ssid: "YOUR_WIFI_SSID"
-  password: "YOUR_WIFI_PASSWORD"
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
   power_save_mode: none
+  on_connect:
+    - lambda: |-
+        // Update WiFi MAC text sensor on connection
+        uint8_t mac_bytes[6];
+        esp_read_mac(mac_bytes, ESP_MAC_WIFI_STA);
+        char mac_str[18];
+        snprintf(mac_str, sizeof(mac_str), "%02X:%02X:%02X:%02X:%02X:%02X",
+                 mac_bytes[0], mac_bytes[1], mac_bytes[2], mac_bytes[3], mac_bytes[4], mac_bytes[5]);
+        id(wifi_mac_address).publish_state(mac_str);
   ap:
     ssid: "ESP32C6-LCD Fallback"
-    password: "YOUR_FALLBACK_PASSWORD"
-
+    password: !secret wifi_fallback_password
 captive_portal:
 
 web_server:
@@ -147,6 +155,16 @@ espnow:
   auto_add_peer: true
   peers:
     - "10:B4:1D:EA:E0:68"
+    - "B4:3A:45:99:70:80"
+  on_unknown_peer:
+    - lambda: |-
+        // Update ESP-NOW MAC when peer is added
+        uint8_t mac[6];
+        esp_read_mac(mac, ESP_MAC_WIFI_STA);
+        char mac_str[18];
+        snprintf(mac_str, sizeof(mac_str), "%02X:%02X:%02X:%02X:%02X:%02X",
+                 mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+        id(espnow_mac_address).publish_state(mac_str);
   
   on_receive:
     - lambda: |-
@@ -170,11 +188,14 @@ espnow:
         };
 
         if (size != sizeof(GpsEspNowPacket)) {
+          ESP_LOGW("espnow", "Received unexpected packet size: %d", size);
           return; 
         }
         
         GpsEspNowPacket packet;
         memcpy(&packet, data, sizeof(GpsEspNowPacket));
+        
+        ESP_LOGI("espnow", "Ping received #%u from sender", packet.pingCounter);
         
         id(g_gps_lat) = packet.lat;
         id(g_gps_lon) = packet.lon;
@@ -198,16 +219,25 @@ espnow:
         id(last_ping_counter) = packet.pingCounter;
         id(g_gps_data_updated) = true;
     
-    # Send pong response
+    # Send pong response back to sender
     - espnow.send:
-        address: "10:B4:1D:EA:E0:68"
+        address: !lambda |-
+          std::array<uint8_t, 6> addr;
+          std::copy(info.src_addr, info.src_addr + 6, addr.begin());
+          return addr;
         data: !lambda |-
           struct __attribute__((packed)) PongPacket {
             uint32_t pingCounter;
           };
           PongPacket pong;
           pong.pingCounter = id(last_ping_counter);
+          
+          ESP_LOGI("espnow", "Sending pong response for ping #%u", pong.pingCounter);
+          
           return std::vector<uint8_t>((uint8_t*)&pong, (uint8_t*)&pong + sizeof(PongPacket));
+        id: espnow_component
+        wait_for_sent: true
+        continue_on_error: true
 
 # =========================================================================
 #  GLOBALS
@@ -524,6 +554,16 @@ text_sensor:
     id: gps_connection_status
     name: "GPS Connection Status"
     internal: true
+  
+  - platform: template
+    id: wifi_mac_address
+    name: "WiFi MAC Address"
+    internal: false
+  
+  - platform: template
+    id: espnow_mac_address
+    name: "ESP-NOW MAC Address"
+    internal: false
 
 number:
   - platform: template
@@ -1279,4 +1319,4 @@ font:
   - file: "gfonts://Roboto"
     id: montserrat_48
     size: 48
-    glyphs: "0123456789.-%ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz :°/"
+    glyphs: "0123456789.-%ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz :°/"    
