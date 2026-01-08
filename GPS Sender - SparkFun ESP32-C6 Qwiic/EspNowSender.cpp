@@ -3,6 +3,7 @@
 #include <WiFi.h>
 #include "EspNowSender.h"
 #include "Context.h" // To access global gpsData
+#include "WebServer.h" // For webSerialLog
 
 // ESP-NOW Direct Point-to-Point Configuration
 // REPLACE WITH YOUR ESPHOME RECEIVER MAC ADDRESS (get from ESPHome device)
@@ -45,16 +46,24 @@ typedef struct __attribute__((packed)) {
 
 // Track which client we're currently sending to
 static int currentSendIndex = -1;
+static unsigned long lastTransmitTimes[3] = {0, 0, 0}; // Track per-client transmission times
 
 // Callback when data is received (pong response from receivers)
 void OnDataReceived(const esp_now_recv_info_t *recv_info, const uint8_t *data, int size) {
   if (size != sizeof(PongPacket)) {
     Serial.printf("Received unexpected packet size: %d\n", size);
+    webSerialLog("ESP-NOW: Received unexpected packet size: " + String(size));
     return;
   }
   
   PongPacket pong;
   memcpy(&pong, data, sizeof(PongPacket));
+  
+  // Debug: Log the MAC that sent this pong
+  Serial.printf("Pong from MAC %02X:%02X:%02X:%02X:%02X:%02X (ping #%u)\n",
+                recv_info->src_addr[0], recv_info->src_addr[1], recv_info->src_addr[2],
+                recv_info->src_addr[3], recv_info->src_addr[4], recv_info->src_addr[5],
+                pong.pingCounter);
   
   // Find which client sent this pong by matching MAC address
   for (int i = 0; i < numReceivers; i++) {
@@ -63,10 +72,16 @@ void OnDataReceived(const esp_now_recv_info_t *recv_info, const uint8_t *data, i
       gpsData.espNowClients[i].lastPingReceived = pong.pingCounter;
       gpsData.espNowClients[i].isActive = true;
       
-      Serial.printf("Pong received from client %d (ping #%u)\n", i + 1, pong.pingCounter);
+      Serial.printf("ESP-NOW: Pong received from client %d (ping #%u)\n", i + 1, pong.pingCounter);
+      webSerialLog("ESP-NOW: Pong received from client " + String(i + 1) + " (ping #" + String(pong.pingCounter) + ")");
       return;
     }
   }
+  
+  // If we get here, MAC didn't match any known client
+  Serial.printf("WARNING: Unrecognized pong from %02X:%02X:%02X:%02X:%02X:%02X\n",
+                recv_info->src_addr[0], recv_info->src_addr[1], recv_info->src_addr[2],
+                recv_info->src_addr[3], recv_info->src_addr[4], recv_info->src_addr[5]);
 }
 
 // Callback when data is sent
@@ -151,6 +166,8 @@ void sendGpsDataViaEspNow() {
   // Increment ping counter for this transmission
   gpsData.espNowPingCounter++;
 
+  webSerialLog("ESP-NOW: Sending ping #" + String(gpsData.espNowPingCounter) + " to " + String(numReceivers) + " receiver(s)");
+
   GpsEspNowPacket packet;
   packet.lat = gpsData.lat;
   packet.lon = gpsData.lon;
@@ -174,50 +191,75 @@ void sendGpsDataViaEspNow() {
 
   // Send to all registered receivers
   bool anySuccess = false;
+  unsigned long currentTime = millis();
+  
   for (int i = 0; i < numReceivers; i++) {
     // Always send to allow auto-reconnection, regardless of current status
     esp_err_t result = esp_now_send(receiverMacs[i], (uint8_t *) &packet, sizeof(packet));
     
     if (result == ESP_OK) {
       anySuccess = true;
+      // Track successful transmission time for this specific client
+      gpsData.espNowClients[i].lastTransmitTime = currentTime;
+      lastTransmitTimes[i] = currentTime;
+      webSerialLog("ESP-NOW: Ping sent successfully to client " + String(i + 1));
+    } else {
+      webSerialLog("ESP-NOW: Failed to send ping to client " + String(i + 1));
     }
   }
   
   if (anySuccess) {
-    gpsData.espNowLastTxTime = millis();
+    gpsData.espNowLastTxTime = currentTime;
   } else {
     gpsData.espNowStatus = "Send Error";
     gpsData.espNowError = "esp_now_send returned error";
+    webSerialLog("ESP-NOW: All transmissions failed");
   }
 }
 
 // Check for client timeouts and update connection status
+// Only considers a client connected if a pong was received within the last 30 seconds
 void checkEspNowClientTimeouts() {
   unsigned long currentTime = millis();
   int activeClients = 0;
   
   for (int i = 0; i < numReceivers; i++) {
-    // Skip checking if never received response
-    if (gpsData.espNowClients[i].lastResponseTime == 0) {
-      continue;
-    }
+    bool wasActive = gpsData.espNowClients[i].isActive;
     
-    // Check if client has timed out
-    unsigned long timeSinceResponse = currentTime - gpsData.espNowClients[i].lastResponseTime;
-    if (timeSinceResponse > gpsData.espNowTimeoutMs) {
-      if (gpsData.espNowClients[i].isActive) {
+    // Client is only considered connected if we received a pong within timeout period
+    if (gpsData.espNowClients[i].lastResponseTime > 0) {
+      unsigned long timeSinceResponse = currentTime - gpsData.espNowClients[i].lastResponseTime;
+      
+      if (timeSinceResponse <= gpsData.espNowTimeoutMs) {
+        // Client is active - pong received within timeout
+        gpsData.espNowClients[i].isActive = true;
+        activeClients++;
+        
+        // Log when client becomes active
+        if (!wasActive) {
+          Serial.printf("Client %d connected (pong received)\n", i + 1);
+          webSerialLog("ESP-NOW: Client " + String(i + 1) + " connected (pong received)");
+        }
+      } else {
+        // Client timed out - no pong within timeout period
         gpsData.espNowClients[i].isActive = false;
-        Serial.printf("Client %d timed out (no response for %lu ms)\n", i + 1, timeSinceResponse);
+        
+        // Log when client becomes inactive
+        if (wasActive) {
+          Serial.printf("Client %d disconnected (no pong for %lu ms)\n", i + 1, timeSinceResponse);
+          webSerialLog("ESP-NOW: Client " + String(i + 1) + " disconnected (no pong for " + String(timeSinceResponse / 1000) + "s)");
+        }
       }
     } else {
-      activeClients++;
+      // Never received a pong from this client - mark as inactive
+      gpsData.espNowClients[i].isActive = false;
     }
   }
   
   // Update overall status
   if (activeClients > 0) {
     char statusBuf[32];
-    snprintf(statusBuf, sizeof(statusBuf), "Active (%d/%d)", activeClients, numReceivers);
+    snprintf(statusBuf, sizeof(statusBuf), "Connected (%d/%d)", activeClients, numReceivers);
     gpsData.espNowStatus = statusBuf;
   } else {
     gpsData.espNowStatus = "No Clients";

@@ -54,23 +54,36 @@ esp32:
 # Enable logging
 logger:
 
+# Debug Component
+debug:
+  update_interval: 5s
+
 # Enable Home Assistant API
 api:
   encryption:
-    key: "YOUR_API_ENCRYPTION_KEY_HERE"
+    key: "w32Msmy93F1ixn76Ywdas9UVNLr8kT9A7MrYJxGsmBg="
 
 ota:
   - platform: esphome
-    password: "YOUR_OTA_PASSWORD_HERE"
+    password: "7ed0db7a69c73d2a32cafdcb113e8f3e"
 
 wifi:
-  ssid: "YOUR_WIFI_SSID"
-  password: "YOUR_WIFI_PASSWORD"
+  ssid: IoT
+  password: kkkkkkkk
   power_save_mode: none
+  on_connect:
+    - lambda: |-
+        // Update WiFi MAC text sensor on connection
+        uint8_t mac_bytes[6];
+        esp_read_mac(mac_bytes, ESP_MAC_WIFI_STA);
+        char mac_str[18];
+        snprintf(mac_str, sizeof(mac_str), "%02X:%02X:%02X:%02X:%02X:%02X",
+                 mac_bytes[0], mac_bytes[1], mac_bytes[2], mac_bytes[3], mac_bytes[4], mac_bytes[5]);
+        id(wifi_mac_address).publish_state(mac_str);
   # Enable fallback hotspot (captive portal) in case wifi connection fails
   ap:
     ssid: "Amoled Fallback Hotspot"
-    password: "YOUR_FALLBACK_PASSWORD"
+    password: "kkkkkkkk"
 
 captive_portal:
 
@@ -166,8 +179,8 @@ binary_sensor:
       then:
         - lambda: |-
             // Cycle to next page
-            auto current_page = id(display_page).state;
-            ESP_LOGI("button", "Next button pressed, current page: %s", current_page.c_str());
+            auto current_page = id(display_page).current_option();
+            ESP_LOGI("button", "Next button pressed, current page: %s", current_page);
             if (current_page == "Home") {
               id(display_page).publish_state("GPS Accuracy");
             } else if (current_page == "GPS Accuracy") {
@@ -185,7 +198,17 @@ espnow:
   id: espnow_component
   auto_add_peer: true
   peers:
-    - "10:B4:1D:EA:E0:68"  # GPS sender MAC address
+    - "10:B4:1D:EA:E0:68"
+    - "B4:3A:45:99:70:80"
+  on_unknown_peer:
+    - lambda: |-
+        // Update ESP-NOW MAC when peer is added
+        uint8_t mac[6];
+        esp_read_mac(mac, ESP_MAC_WIFI_STA);
+        char mac_str[18];
+        snprintf(mac_str, sizeof(mac_str), "%02X:%02X:%02X:%02X:%02X:%02X",
+                 mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+        id(espnow_mac_address).publish_state(mac_str);
   
   on_receive:
     - lambda: |-
@@ -212,15 +235,15 @@ espnow:
         };
 
         if (size != sizeof(GpsEspNowPacket)) {
-          ESP_LOGW("espnow", "Received packet size %d, expected %d - ignoring", size, sizeof(GpsEspNowPacket));
+          ESP_LOGW("espnow", "Received unexpected packet size: %d", size);
           lv_led_off(id(lv_led_7));  // Turn off LED on error
           return;
         }
         
-        ESP_LOGI("espnow", "Received GPS packet successfully");
-
         GpsEspNowPacket packet;
         memcpy(&packet, data, sizeof(GpsEspNowPacket));
+        
+        ESP_LOGI("espnow", "Ping received #%u from sender", packet.pingCounter);
         
         id(gps_connection_status).publish_state("Connected");
 
@@ -335,20 +358,30 @@ espnow:
         id(gps_station_ip).publish_state(ip_str);
         lv_label_set_text(id(value_gps_ip), final_buf);
         
+        ESP_LOGI("espnow", "Ping received #%u from sender", packet.pingCounter);
+        
         // Store ping counter for pong response
         id(last_ping_counter) = packet.pingCounter;
     
-    # Send pong response back to GPS sender
+    # Send pong response back to sender
     - espnow.send:
-        address: "10:B4:1D:EA:E0:68"
+        address: !lambda |-
+          std::array<uint8_t, 6> addr;
+          std::copy(info.src_addr, info.src_addr + 6, addr.begin());
+          return addr;
         data: !lambda |-
           struct __attribute__((packed)) PongPacket {
             uint32_t pingCounter;
           };
           PongPacket pong;
           pong.pingCounter = id(last_ping_counter);
-          ESP_LOGI("espnow", "Sending pong for ping #%u", pong.pingCounter);
+          
+          ESP_LOGI("espnow", "Sending pong response for ping #%u", pong.pingCounter);
+          
           return std::vector<uint8_t>((uint8_t*)&pong, (uint8_t*)&pong + sizeof(PongPacket));
+        id: espnow_component
+        wait_for_sent: true
+        continue_on_error: true
     
     # Turn off LED after configurable duration
     - delay: !lambda "return id(led_blink_duration).state;"
@@ -417,6 +450,19 @@ sensor:
     name: "WiFi Signal"
     internal: true
 
+  # Debug Sensors
+  - platform: debug
+    free:
+      name: "Heap Free"
+    block:
+      name: "Heap Max Block"
+    loop_time:
+      name: "Loop Time"
+    psram:
+      name: "Free PSRAM"
+    cpu_frequency:
+      name: "CPU Frequency"
+
 text_sensor:
   - platform: wifi_info
     mac_address:
@@ -449,6 +495,23 @@ text_sensor:
     id: gps_connection_status
     name: "GPS Connection Status"
     internal: true
+  
+  - platform: template
+    id: wifi_mac_address
+    name: "WiFi MAC Address"
+    internal: false
+  
+  - platform: template
+    id: espnow_mac_address
+    name: "ESP-NOW MAC Address"
+    internal: false
+
+  # Debug Text Sensors
+  - platform: debug
+    device:
+      name: "Device Info"
+    reset_reason:
+      name: "Reset Reason"
 
 number:
   - platform: template
