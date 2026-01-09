@@ -23,12 +23,12 @@ wifi:
   ap:
     ssid: "ESP32C6-LCD Fallback"
     password: !secret wifi_fallback_password
-captive_portal:
+# captive_portal:  # Commented out to save RAM
 
-web_server:
-  port: 80
-  version: 3
-  include_internal: true
+# web_server:  # Commented out to save RAM
+#   port: 80
+#   version: 3
+#   include_internal: true
 
 substitutions:
   id: esp32c6_lcd
@@ -116,6 +116,7 @@ esphome:
             - lvgl.page.show: page_network
 
 logger:
+  level: WARN  # Changed from DEBUG (default) to WARN to save CPU
 
 spi:
   clk_pin: GPIO7
@@ -135,6 +136,15 @@ light:
     chipset: SK6812
     internal: true
     default_transition_length: 10ms
+
+  # Screen backlight as a light entity
+  - platform: monochromatic
+    id: screen_backlight
+    name: "Screen Brightness"
+    output: lcd_backlight
+    default_transition_length: 0.3s
+    restore_mode: RESTORE_DEFAULT_ON
+    internal: false
 
 output:
   - platform: ledc
@@ -577,23 +587,6 @@ number:
     restore_value: true
     mode: box
     internal: true
-
-  - platform: template
-    name: "Display Brightness"
-    id: display_brightness
-    optimistic: true
-    min_value: 0
-    max_value: 100
-    step: 1
-    initial_value: 100
-    restore_value: true
-    mode: slider
-    internal: true
-    on_value:
-      then:
-        - output.set_level:
-            id: lcd_backlight
-            level: !lambda "return x / 100.0;"
 
   - platform: template
     name: "LED Blink Duration"
@@ -1319,4 +1312,4 @@ font:
   - file: "gfonts://Roboto"
     id: montserrat_48
     size: 48
-    glyphs: "0123456789.-%ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz :°/"    
+    glyphs: "0123456789.-%ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz :°/"

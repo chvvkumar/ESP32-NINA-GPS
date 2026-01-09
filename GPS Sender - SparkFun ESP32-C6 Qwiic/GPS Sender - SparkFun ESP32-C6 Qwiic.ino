@@ -65,10 +65,9 @@ void setup() {
 }
 
 void loop() {
-  // PRIORITY 1: Handle OTA updates immediately - call multiple times for responsiveness
-  webLoop();
-  webLoop();
-  webLoop();
+  // PRIORITY 1: Handle OTA updates
+  webLoop(); 
+  // removed redundant calls to free up CPU for GPS polling
   
   // Skip all other activities during OTA update
   if (otaInProgress) {

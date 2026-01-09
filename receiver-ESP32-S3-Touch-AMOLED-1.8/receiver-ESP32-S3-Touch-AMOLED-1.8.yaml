@@ -49,14 +49,20 @@ esp32:
   variant: esp32s3
   framework:
     type: esp-idf
+    # Add optimization flags for performance
+    sdkconfig_options:
+      COMPILER_OPTIMIZATION_SIZE: y
+      COMPILER_OPTIMIZATION_LEVEL_RELEASE: y
+      CONFIG_COMPILER_OPTIMIZATION_ASSERTIONS_DISABLE: y
+      CONFIG_HEAP_POISONING_DISABLED: y
   flash_size: 16MB
 
 # Enable logging
 logger:
+  level: WARN  # Changed from DEBUG (default) to WARN to save CPU
 
-# Debug Component
-debug:
-  update_interval: 5s
+# debug:  # Removed debug component to save resources
+#   update_interval: 5s
 
 # Enable Home Assistant API
 api:
@@ -450,18 +456,18 @@ sensor:
     name: "WiFi Signal"
     internal: true
 
-  # Debug Sensors
-  - platform: debug
-    free:
-      name: "Heap Free"
-    block:
-      name: "Heap Max Block"
-    loop_time:
-      name: "Loop Time"
-    psram:
-      name: "Free PSRAM"
-    cpu_frequency:
-      name: "CPU Frequency"
+  # Removed debug sensors to save resources
+  # - platform: debug
+  #   free:
+  #     name: "Heap Free"
+  #   block:
+  #     name: "Heap Max Block"
+  #   loop_time:
+  #     name: "Loop Time"
+  #   psram:
+  #     name: "Free PSRAM"
+  #   cpu_frequency:
+  #     name: "CPU Frequency"
 
 text_sensor:
   - platform: wifi_info
@@ -506,12 +512,12 @@ text_sensor:
     name: "ESP-NOW MAC Address"
     internal: false
 
-  # Debug Text Sensors
-  - platform: debug
-    device:
-      name: "Device Info"
-    reset_reason:
-      name: "Reset Reason"
+  # Removed debug text sensors to save resources
+  # - platform: debug
+  #   device:
+  #     name: "Device Info"
+  #   reset_reason:
+  #     name: "Reset Reason"
 
 number:
   - platform: template

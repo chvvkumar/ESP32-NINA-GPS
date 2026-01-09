@@ -126,6 +126,20 @@ bool hasNewConnections() {
 }
 
 void broadcastData() {
+  // OPTIMIZATION: Check if anyone is actually listening before building strings
+  bool hasActiveClients = false;
+  if (xSemaphoreTake(clientsMutex, portMAX_DELAY)) {
+    for (auto& ctx : clients) {
+      if (ctx.client->connected()) {
+        hasActiveClients = true;
+        break;
+      }
+    }
+    xSemaphoreGive(clientsMutex);
+  }
+
+  if (!hasActiveClients) return; // Exit immediately if no clients, saving CPU/RAM
+
   // Construct strings first to minimize lock time, relying on extern gpsData
   
   // --- PREPARE NMEA ---
