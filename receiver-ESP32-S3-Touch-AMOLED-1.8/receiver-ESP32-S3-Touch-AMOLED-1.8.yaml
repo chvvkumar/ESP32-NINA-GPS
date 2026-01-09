@@ -666,7 +666,7 @@ number:
     min_value: 10
     max_value: 100
     step: 5
-    initial_value: 100
+    initial_value: 35
     optimistic: true
     restore_value: true
     on_value:
@@ -692,7 +692,7 @@ number:
     min_value: 0
     max_value: 300
     step: 5
-    initial_value: 30
+    initial_value: 60
     unit_of_measurement: "s"
     optimistic: true
     restore_value: true
