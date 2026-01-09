@@ -57,6 +57,9 @@ struct GPSData {
   
   bool ledState = false; 
   bool configSaved = false;
+  
+  // Demo Mode (sends fake GPS data)
+  bool demoMode = false;
 
   float cpuTemp = 0.0;
   
