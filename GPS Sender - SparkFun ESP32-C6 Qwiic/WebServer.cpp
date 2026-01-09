@@ -554,11 +554,16 @@ const char index_html[] PROGMEM = R"rawliteral(
     let demoModeActive = false;
     function toggleDemoMode() {
         const newState = !demoModeActive;
+        console.log(`Demo Mode: ${newState ? 'ENABLING' : 'DISABLING'}...`);
         fetch(`/api/set_demo_mode?enabled=${newState ? 1 : 0}`)
         .then(r => r.text())
         .then(() => {
             demoModeActive = newState;
             updateDemoModeUI();
+            console.log(`Demo Mode: ${newState ? 'ENABLED' : 'DISABLED'}`);
+        })
+        .catch(err => {
+            console.error('Failed to toggle demo mode:', err);
         });
     }
 
@@ -991,6 +996,7 @@ void setupWeb() {
     doc["ledMode"] = (int)gpsData.ledMode;
     doc["ledBlinkMs"] = LED_BLINK_DURATION_MS;
     doc["rate"] = gpsData.gpsInterval;
+    doc["demoMode"] = gpsData.demoMode;
 
     doc["enStatus"] = gpsData.espNowStatus;
     doc["enError"] = gpsData.espNowError;
@@ -1080,6 +1086,13 @@ void setupWeb() {
     if (request->hasParam("interval")) {
       unsigned long interval = request->getParam("interval")->value().toInt();
       gpsData.gpsInterval = interval;
+    }
+    request->send(200, "text/plain", "OK");
+  });
+
+  webServer.on("/api/set_demo_mode", HTTP_GET, [](AsyncWebServerRequest *request){
+    if (request->hasParam("enabled")) {
+      gpsData.demoMode = request->getParam("enabled")->value().toInt() == 1;
     }
     request->send(200, "text/plain", "OK");
   });
