@@ -136,6 +136,15 @@ light:
     internal: true
     default_transition_length: 10ms
 
+  # Screen backlight as a light entity
+  - platform: monochromatic
+    id: screen_backlight
+    name: "Screen Brightness"
+    output: lcd_backlight
+    default_transition_length: 0.3s
+    restore_mode: RESTORE_DEFAULT_ON
+    internal: false
+
 output:
   - platform: ledc
     pin: GPIO22
@@ -577,23 +586,6 @@ number:
     restore_value: true
     mode: box
     internal: true
-
-  - platform: template
-    name: "Display Brightness"
-    id: display_brightness
-    optimistic: true
-    min_value: 0
-    max_value: 100
-    step: 1
-    initial_value: 100
-    restore_value: true
-    mode: slider
-    internal: true
-    on_value:
-      then:
-        - output.set_level:
-            id: lcd_backlight
-            level: !lambda "return x / 100.0;"
 
   - platform: template
     name: "LED Blink Duration"
@@ -1319,4 +1311,4 @@ font:
   - file: "gfonts://Roboto"
     id: montserrat_48
     size: 48
-    glyphs: "0123456789.-%ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz :°/"    
+    glyphs: "0123456789.-%ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz :°/"
