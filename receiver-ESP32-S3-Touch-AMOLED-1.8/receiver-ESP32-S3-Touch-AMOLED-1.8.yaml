@@ -6,6 +6,9 @@ esphome:
     then:
       - delay: 2s
       - lambda: |-
+          // Initialize activity timer
+          id(last_activity_time) = millis();
+      - lambda: |-
           // Update receiver IP address on display
           auto ip_str = id(wifi_ip_address).state;
           lv_label_set_text(id(value_receiver_ip), ip_str.c_str());
@@ -121,6 +124,37 @@ spi:
   data_pins: [GPIO4, GPIO5, GPIO6, GPIO7]
 
 # =============================================
+# Interval - Display Sleep Monitor
+# =============================================
+interval:
+  - interval: 1s
+    then:
+      - lambda: |-
+          // Check if display should sleep
+          float timeout = id(display_sleep_timeout).state;
+          
+          // Skip if timeout is 0 (disabled)
+          if (timeout <= 0) {
+            return;
+          }
+          
+          // Skip if already sleeping
+          if (id(display_sleeping)) {
+            return;
+          }
+          
+          // Check if timeout exceeded
+          uint32_t now = millis();
+          uint32_t elapsed = (now - id(last_activity_time)) / 1000;  // Convert to seconds
+          
+          if (elapsed >= (uint32_t)timeout) {
+            // Put display to sleep
+            id(display_sleeping) = true;
+            id(amoled_display).set_brightness(0);
+            ESP_LOGI("sleep", "Display going to sleep after %d seconds of inactivity", (int)timeout);
+          }
+
+# =============================================
 # Button
 # =============================================
 button:
@@ -147,6 +181,18 @@ binary_sensor:
     on_press:
       then:
         - lambda: |-
+            // Reset sleep timer
+            id(last_activity_time) = millis();
+            
+            // Wake display if sleeping
+            if (id(display_sleeping)) {
+              id(display_sleeping) = false;
+              float brightness = id(display_brightness).state;
+              id(amoled_display).set_brightness((brightness - 10) * 2.8333);
+              ESP_LOGI("sleep", "Display woken by brightness button");
+              return;  // Don't change brightness on wake, just wake up
+            }
+            
             // Cycle through brightness: 0%, 20%, 40%, 60%, 80%, 100%
             float current = id(display_brightness).state;
             float next_brightness;
@@ -184,6 +230,18 @@ binary_sensor:
     on_press:
       then:
         - lambda: |-
+            // Reset sleep timer
+            id(last_activity_time) = millis();
+            
+            // Wake display if sleeping
+            if (id(display_sleeping)) {
+              id(display_sleeping) = false;
+              float brightness = id(display_brightness).state;
+              id(amoled_display).set_brightness((brightness - 10) * 2.8333);
+              ESP_LOGI("sleep", "Display woken by next page button");
+              return;  // Don't change page on wake, just wake up
+            }
+            
             // Cycle to next page
             auto current_page = id(display_page).current_option();
             ESP_LOGI("button", "Next button pressed, current page: %s", current_page);
@@ -402,6 +460,16 @@ globals:
     type: uint32_t
     restore_value: no
     initial_value: '0'
+  
+  - id: last_activity_time
+    type: uint32_t
+    restore_value: no
+    initial_value: '0'
+  
+  - id: display_sleeping
+    type: bool
+    restore_value: no
+    initial_value: 'false'
 
 # =========================================================================
 #  SENSORS
@@ -558,6 +626,19 @@ number:
     mode: box
     internal: true
 
+  - platform: template
+    name: "Display Sleep Timeout"
+    id: display_sleep_timeout
+    min_value: 0
+    max_value: 300
+    step: 5
+    initial_value: 30
+    unit_of_measurement: "s"
+    optimistic: true
+    restore_value: true
+    mode: box
+    internal: false
+
 select:
   - platform: template
     name: "Display Rotation"
@@ -648,6 +729,18 @@ touchscreen:
   interrupt_pin: GPIO21
   on_touch:
     - lambda: |-
+        // Reset sleep timer
+        id(last_activity_time) = millis();
+        
+        // Wake display if sleeping
+        if (id(display_sleeping)) {
+          id(display_sleeping) = false;
+          float brightness = id(display_brightness).state;
+          id(amoled_display).set_brightness((brightness - 10) * 2.8333);
+          ESP_LOGI("sleep", "Display woken by touchscreen");
+          return;  // Don't process touch on wake, just wake up
+        }
+        
         ESP_LOGI("cal", "x=%d, y=%d, x_raw=%d, y_raw=%0d",
           touch.x,
           touch.y,
