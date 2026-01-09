@@ -6,6 +6,9 @@ esphome:
     then:
       - delay: 2s
       - lambda: |-
+          // Initialize activity timer
+          id(last_activity_time) = millis();
+      - lambda: |-
           // Update receiver IP address on display
           auto ip_str = id(wifi_ip_address).state;
           lv_label_set_text(id(value_receiver_ip), ip_str.c_str());
@@ -21,6 +24,53 @@ esphome:
           // lv_obj_invalidate(id(lbl_sats_canvas3));
           // lv_bar_set_range(id(lbl_sats_canvas4), 0, max_hist);
           // lv_obj_invalidate(id(lbl_sats_canvas4));
+
+          // Initialize brightness slider on canvas_5 to match current brightness
+          float current_brightness = id(display_brightness).state;
+          int slider_value = (int)((current_brightness - 10) / 0.9);
+          lv_slider_set_value(id(lv_slider_10), slider_value, LV_ANIM_OFF);
+          
+          // Set brightness value label
+          char brightness_buf[16];
+          snprintf(brightness_buf, sizeof(brightness_buf), "%.0f%%", current_brightness);
+          lv_label_set_text(id(lbl_brightness_value), brightness_buf);
+          
+          // Initialize timeout slider on canvas_5 to match current timeout
+          float current_timeout = id(display_sleep_timeout).state;
+          // Map timeout to slider index: 5, 10, 15, 30, 60, 120, 180, 240, 300
+          int slider_index = 4; // Default to 60s (1m)
+          if (current_timeout <= 5) slider_index = 0;
+          else if (current_timeout <= 10) slider_index = 1;
+          else if (current_timeout <= 15) slider_index = 2;
+          else if (current_timeout <= 30) slider_index = 3;
+          else if (current_timeout <= 60) slider_index = 4;
+          else if (current_timeout <= 120) slider_index = 5;
+          else if (current_timeout <= 180) slider_index = 6;
+          else if (current_timeout <= 240) slider_index = 7;
+          else slider_index = 8;
+          lv_slider_set_value(id(lv_slider_timeout), slider_index, LV_ANIM_OFF);
+          
+          // Set timeout value label
+          char timeout_buf[32];
+          if (current_timeout < 60) {
+            snprintf(timeout_buf, sizeof(timeout_buf), "%.0fs", current_timeout);
+          } else {
+            int minutes = (int)current_timeout / 60;
+            int seconds = (int)current_timeout % 60;
+            if (seconds == 0) {
+              snprintf(timeout_buf, sizeof(timeout_buf), "%dm", minutes);
+            } else {
+              snprintf(timeout_buf, sizeof(timeout_buf), "%dm %ds", minutes, seconds);
+            }
+          }
+          lv_label_set_text(id(lbl_timeout_value), timeout_buf);
+          
+          // Initialize sleep button state on canvas_5
+          if (id(sleep_timeout_enabled)) {
+            lv_obj_add_state(id(lv_button_enablesleep), LV_STATE_CHECKED);
+          } else {
+            lv_obj_clear_state(id(lv_button_enablesleep), LV_STATE_CHECKED);
+          }
 
       # Restore the last displayed LVGL page
       - delay: 500ms
@@ -44,6 +94,11 @@ esphome:
             lambda: 'return id(display_page).has_state() && id(display_page).current_option() == "Network Info";'
           then:
             - lvgl.page.show: canvas_4
+      - if:
+          condition:
+            lambda: 'return id(display_page).has_state() && id(display_page).current_option() == "Settings";'
+          then:
+            - lvgl.page.show: canvas_5
 
 esp32:
   variant: esp32s3
@@ -121,11 +176,43 @@ spi:
   data_pins: [GPIO4, GPIO5, GPIO6, GPIO7]
 
 # =============================================
+# Interval - Display Sleep Monitor
+# =============================================
+interval:
+  - interval: 1s
+    then:
+      - lambda: |-
+          // Check if display should sleep
+          float timeout = id(display_sleep_timeout).state;
+          
+          // Skip if timeout is disabled via toggle or set to 0
+          if (!id(sleep_timeout_enabled) || timeout <= 0) {
+            return;
+          }
+          
+          // Skip if already sleeping
+          if (id(display_sleeping)) {
+            return;
+          }
+          
+          // Check if timeout exceeded
+          uint32_t now = millis();
+          uint32_t elapsed = (now - id(last_activity_time)) / 1000;  // Convert to seconds
+          
+          if (elapsed >= (uint32_t)timeout) {
+            // Put display to sleep
+            id(display_sleeping) = true;
+            id(amoled_display).set_brightness(0);
+            ESP_LOGI("sleep", "Display going to sleep after %d seconds of inactivity", (int)timeout);
+          }
+
+# =============================================
 # Button
 # =============================================
 button:
   - platform: restart
     name:  "Reboot"
+    id: device_reboot
     internal: false
 
 # =============================================
@@ -147,6 +234,18 @@ binary_sensor:
     on_press:
       then:
         - lambda: |-
+            // Reset sleep timer
+            id(last_activity_time) = millis();
+            
+            // Wake display if sleeping
+            if (id(display_sleeping)) {
+              id(display_sleeping) = false;
+              float brightness = id(display_brightness).state;
+              id(amoled_display).set_brightness((brightness - 10) * 2.8333);
+              ESP_LOGI("sleep", "Display woken by brightness button");
+              return;  // Don't change brightness on wake, just wake up
+            }
+            
             // Cycle through brightness: 0%, 20%, 40%, 60%, 80%, 100%
             float current = id(display_brightness).state;
             float next_brightness;
@@ -184,6 +283,18 @@ binary_sensor:
     on_press:
       then:
         - lambda: |-
+            // Reset sleep timer
+            id(last_activity_time) = millis();
+            
+            // Wake display if sleeping
+            if (id(display_sleeping)) {
+              id(display_sleeping) = false;
+              float brightness = id(display_brightness).state;
+              id(amoled_display).set_brightness((brightness - 10) * 2.8333);
+              ESP_LOGI("sleep", "Display woken by next page button");
+              return;  // Don't change page on wake, just wake up
+            }
+            
             // Cycle to next page
             auto current_page = id(display_page).current_option();
             ESP_LOGI("button", "Next button pressed, current page: %s", current_page);
@@ -194,6 +305,8 @@ binary_sensor:
             } else if (current_page == "Speed") {
               id(display_page).publish_state("Network Info");
             } else if (current_page == "Network Info") {
+              id(display_page).publish_state("Settings");
+            } else if (current_page == "Settings") {
               id(display_page).publish_state("Home");
             }
 
@@ -402,6 +515,21 @@ globals:
     type: uint32_t
     restore_value: no
     initial_value: '0'
+  
+  - id: last_activity_time
+    type: uint32_t
+    restore_value: no
+    initial_value: '0'
+  
+  - id: display_sleeping
+    type: bool
+    restore_value: no
+    initial_value: 'false'
+  
+  - id: sleep_timeout_enabled
+    type: bool
+    restore_value: yes
+    initial_value: 'true'
 
 # =========================================================================
 #  SENSORS
@@ -558,6 +686,19 @@ number:
     mode: box
     internal: true
 
+  - platform: template
+    name: "Display Sleep Timeout"
+    id: display_sleep_timeout
+    min_value: 0
+    max_value: 300
+    step: 5
+    initial_value: 30
+    unit_of_measurement: "s"
+    optimistic: true
+    restore_value: true
+    mode: box
+    internal: false
+
 select:
   - platform: template
     name: "Display Rotation"
@@ -610,6 +751,7 @@ select:
       - "GPS Accuracy"
       - "Speed"
       - "Network Info"
+      - "Settings"
     initial_option: "Home"
     optimistic: true
     restore_value: true
@@ -635,6 +777,11 @@ select:
               lambda: 'return x == "Network Info";'
             then:
               - lvgl.page.show: canvas_4
+        - if:
+            condition:
+              lambda: 'return x == "Settings";'
+            then:
+              - lvgl.page.show: canvas_5
 
 # =============================================
 # Touchscreen configuration
@@ -648,6 +795,18 @@ touchscreen:
   interrupt_pin: GPIO21
   on_touch:
     - lambda: |-
+        // Reset sleep timer
+        id(last_activity_time) = millis();
+        
+        // Wake display if sleeping
+        if (id(display_sleeping)) {
+          id(display_sleeping) = false;
+          float brightness = id(display_brightness).state;
+          id(amoled_display).set_brightness((brightness - 10) * 2.8333);
+          ESP_LOGI("sleep", "Display woken by touchscreen");
+          return;  // Don't process touch on wake, just wake up
+        }
+        
         ESP_LOGI("cal", "x=%d, y=%d, x_raw=%d, y_raw=%0d",
           touch.x,
           touch.y,
@@ -676,6 +835,14 @@ lvgl:
   pages:
     - id: canvas_1
       bg_color: 0x000000
+      on_swipe_left:
+        - select.set:
+            id: display_page
+            option: "GPS Accuracy"
+      on_swipe_right:
+        - select.set:
+            id: display_page
+            option: "Settings"
       widgets:
         - label:
             id: lbl_lat
@@ -799,6 +966,14 @@ lvgl:
 
     - id: canvas_2
       bg_color: 0x000000
+      on_swipe_left:
+        - select.set:
+            id: display_page
+            option: "Speed"
+      on_swipe_right:
+        - select.set:
+            id: display_page
+            option: "Home"
       widgets:
         - label:
             id: lbl_status_canvas2
@@ -920,6 +1095,14 @@ lvgl:
 
     - id: canvas_3
       bg_color: 0x000000
+      on_swipe_left:
+        - select.set:
+            id: display_page
+            option: "Network Info"
+      on_swipe_right:
+        - select.set:
+            id: display_page
+            option: "GPS Accuracy"
       widgets:
         # - bar:
         #     id: lbl_sats_canvas3
@@ -958,6 +1141,14 @@ lvgl:
 
     - id: canvas_4
       bg_color: 0x000000
+      on_swipe_left:
+        - select.set:
+            id: display_page
+            option: "Settings"
+      on_swipe_right:
+        - select.set:
+            id: display_page
+            option: "Speed"
       widgets:
         - label:
             id: lv_label_5
@@ -1003,6 +1194,215 @@ lvgl:
             text_align: CENTER
             text_font: atkinson_48
 
+    - id: canvas_5
+      bg_color: 0x000000
+      on_swipe_left:
+        - select.set:
+            id: display_page
+            option: "Home"
+      on_swipe_right:
+        - select.set:
+            id: display_page
+            option: "Network Info"
+      widgets:
+        - label:
+            id: lbl_settings_title
+            x: 0
+            y: 10
+            width: 250
+            height: 40
+            text: "Settings"
+            text_color: 0xE10522
+            text_align: LEFT
+            text_font: montserrat_36
+
+        - label:
+            id: lbl_brightness_label
+            x: 0
+            y: 57
+            width: 368
+            height: 30
+            text: "Brightness"
+            text_color: 0xE10522
+            text_align: CENTER
+            text_font: montserrat_24
+
+        - label:
+            id: lbl_brightness_value
+            x: 0
+            y: 169
+            width: 368
+            height: 30
+            text: "100%"
+            text_color: 0xE10522
+            text_align: CENTER
+            text_font: montserrat_28
+
+        - label:
+            id: lbl_timeout_label
+            x: 0
+            y: 223
+            width: 368
+            height: 30
+            text: "Sleep Timeout"
+            text_color: 0xE10522
+            text_align: CENTER
+            text_font: montserrat_24
+
+        - slider:
+            id: lv_slider_timeout
+            x: 20
+            y: 255
+            width: 328
+            height: 80
+            value: 4
+            min_value: 0
+            max_value: 8
+            bg_color: 0x190101
+            border_color: 0xE10522
+            knob:
+              bg_color: 0xE10522
+              border_width: 2
+              radius: 100
+            indicator:
+              bg_color: 0x6E0211
+            animated: true
+            on_value:
+              then:
+                - lambda: |-
+                    // Map slider index to timeout values: 5, 10, 15, 30, 60, 120, 180, 240, 300
+                    const int timeout_values[] = {5, 10, 15, 30, 60, 120, 180, 240, 300};
+                    int index = (int)x;
+                    if (index < 0) index = 0;
+                    if (index > 8) index = 8;
+                    int timeout = timeout_values[index];
+                    
+                    // Update display sleep timeout
+                    id(display_sleep_timeout).publish_state(timeout);
+                    
+                    // Format timeout value for display
+                    char buf[32];
+                    if (timeout < 60) {
+                      snprintf(buf, sizeof(buf), "%ds", timeout);
+                    } else {
+                      int minutes = timeout / 60;
+                      snprintf(buf, sizeof(buf), "%dm", minutes);
+                    }
+                    lv_label_set_text(id(lbl_timeout_value), buf);
+                    
+                    ESP_LOGI("slider", "Sleep timeout slider changed to index %d (%ds)", index, timeout);
+
+        - label:
+            id: lbl_timeout_value
+            x: 0
+            y: 335
+            width: 368
+            height: 30
+            text: "30s"
+            text_color: 0xE10522
+            text_align: CENTER
+            text_font: montserrat_28
+
+        - button:
+            id: lv_button_reboot
+            x: 265
+            y: 0
+            width: 100
+            height: 50
+            bg_color: 0x190101
+            widgets:
+              - label:
+                  id: lv_label_0
+                  x: 0
+                  y: 0
+                  text: "Reboot"
+                  text_color: 0xE10522
+            on_click:
+              then:
+                - lambda: |-
+                    ESP_LOGI("reboot", "Reboot button pressed, restarting device...");
+                - button.press: device_reboot
+
+        - button:
+            id: lv_button_enablesleep
+            x: 250
+            y: 380
+            width: 100
+            height: 50
+            bg_color: 0x190101
+            checkable: true
+            state:
+              checked: true
+            widgets:
+              - label:
+                  align: CENTER
+                  text: "Sleep"
+                  text_color: 0xE10522
+            on_click:
+              then:
+                - lambda: |-
+                    // Toggle sleep timeout enabled state
+                    id(sleep_timeout_enabled) = !id(sleep_timeout_enabled);
+                    ESP_LOGI("sleep", "Sleep timeout %s", id(sleep_timeout_enabled) ? "enabled" : "disabled");
+                    
+                    // Update button state to match
+                    if (id(sleep_timeout_enabled)) {
+                      lv_obj_add_state(id(lv_button_enablesleep), LV_STATE_CHECKED);
+                    } else {
+                      lv_obj_clear_state(id(lv_button_enablesleep), LV_STATE_CHECKED);
+                    }
+
+        - button:
+            id: lv_button_turnoffscreen
+            x: 12
+            y: 380
+            width: 100
+            height: 50
+            bg_color: 0x190101
+            widgets:
+              - label:
+                  text: "Turn-Off"
+                  text_color: 0xE10522
+            on_click:
+              then:
+                - lambda: |-
+                    ESP_LOGI("display", "Turn off button pressed, turning off display backlight");
+                    id(display_sleeping) = true;
+                    id(amoled_display).set_brightness(0);
+
+        - slider:
+            id: lv_slider_10
+            x: 0
+            y: 120
+            width: 368
+            height: 80
+            value: 50
+            min_value: 0
+            max_value: 100
+            bg_color: 0x190101
+            border_color: 0xE10522
+            knob:
+              bg_color: 0xE10522
+              border_color: 0x000000
+              border_width: 2
+              radius: 100
+            indicator:
+              bg_color: 0x6E0211
+            animated: true
+            on_value:
+              then:
+                - lambda: |-
+                    // Map slider value (0-100) to brightness (10-100)
+                    float brightness = 10 + (x * 0.9);
+                    id(display_brightness).publish_state(brightness);
+                    
+                    // Update brightness value label
+                    char buf[16];
+                    snprintf(buf, sizeof(buf), "%.0f%%", brightness);
+                    lv_label_set_text(id(lbl_brightness_value), buf);
+                    
+                    ESP_LOGI("slider", "Brightness slider changed to %.0f, setting brightness to %.0f", x, brightness);
+
 
   displays:
     - amoled_display
@@ -1044,6 +1444,9 @@ font:
   - file: "gfonts://Montserrat"
     id: montserrat_36
     size: 36
+  - file: "gfonts://Montserrat"
+    id: montserrat_38
+    size: 38
   - file: "gfonts://Montserrat"
     id: montserrat_40
     size: 40
