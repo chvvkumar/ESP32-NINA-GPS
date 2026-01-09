@@ -27,7 +27,74 @@ void setupGPS() {
   }
 }
 
+void generateDemoData() {
+  // Generate dummy GPS data that simulates movement
+  static unsigned long lastUpdate = 0;
+  static double demoLat = 30.2672;  // Austin, TX area
+  static double demoLon = -97.7431;
+  static float demoAlt = 150.0;
+  static float demoSpeed = 5.5;
+  static float demoHeading = 90.0;
+  
+  unsigned long now = millis();
+  if (now - lastUpdate < 1000) return; // Update demo data every second
+  lastUpdate = now;
+  
+  // Simulate movement in a circle/pattern
+  demoHeading += 2.0;
+  if (demoHeading >= 360.0) demoHeading = 0.0;
+  
+  // Move position slightly to simulate travel
+  double headingRad = demoHeading * PI / 180.0;
+  demoLat += (demoSpeed * cos(headingRad)) * 0.000001;
+  demoLon += (demoSpeed * sin(headingRad)) * 0.000001;
+  demoAlt += (random(-10, 10) / 10.0); // Random altitude variation
+  demoSpeed = 5.0 + (random(-20, 20) / 10.0); // Speed variation
+  
+  // Update gpsData with demo values (but don't affect real min/max)
+  gpsData.lat = demoLat;
+  gpsData.lon = demoLon;
+  gpsData.alt = demoAlt;
+  gpsData.altMSL = demoAlt;
+  gpsData.speed = demoSpeed;
+  gpsData.heading = demoHeading;
+  
+  // Set demo GPS parameters
+  gpsData.satellites = 12;
+  gpsData.satellitesVisible = 15;
+  gpsData.hasFix = true;
+  gpsData.fixType = 3;
+  gpsData.fixStatus = "3D Fix (Demo)";
+  gpsData.pdop = 1.5;
+  gpsData.hdop = 0.9;
+  gpsData.vdop = 1.2;
+  gpsData.hAcc = 2.5;
+  gpsData.vAcc = 3.0;
+  
+  // Set time to current system time
+  unsigned long seconds = (now / 1000) % 86400;
+  gpsData.hour = (seconds / 3600) % 24;
+  gpsData.minute = (seconds % 3600) / 60;
+  gpsData.second = seconds % 60;
+  
+  char timeBuf[12];
+  snprintf(timeBuf, sizeof(timeBuf), "%02d:%02d:%02d", gpsData.hour, gpsData.minute, gpsData.second);
+  gpsData.timeStr = String(timeBuf);
+  gpsData.localTimeStr = String(timeBuf);
+  
+  // Trigger LED if appropriate
+  if (gpsData.ledMode == LED_BLINK_ON_GPS_READ || gpsData.ledMode == LED_BLINK_ON_FIX) {
+    triggerLed();
+  }
+}
+
 void pollGPS() {
+  // If demo mode is active, generate fake data instead
+  if (gpsData.demoMode) {
+    generateDemoData();
+    return;
+  }
+  
   if (!gpsData.isConnected) {
     static unsigned long lastRetry = 0;
     if (millis() - lastRetry > 5000) {

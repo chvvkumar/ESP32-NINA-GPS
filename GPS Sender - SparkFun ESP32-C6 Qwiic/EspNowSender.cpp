@@ -73,7 +73,7 @@ void OnDataReceived(const esp_now_recv_info_t *recv_info, const uint8_t *data, i
       gpsData.espNowClients[i].isActive = true;
       
       Serial.printf("ESP-NOW: Pong received from client %d (ping #%u)\n", i + 1, pong.pingCounter);
-      webSerialLog("ESP-NOW: Pong received from client " + String(i + 1) + " (ping #" + String(pong.pingCounter) + ")");
+      // webSerialLog("ESP-NOW: Pong received from client " + String(i + 1) + " (ping #" + String(pong.pingCounter) + ")");
       return;
     }
   }
@@ -166,7 +166,7 @@ void sendGpsDataViaEspNow() {
   // Increment ping counter for this transmission
   gpsData.espNowPingCounter++;
 
-  webSerialLog("ESP-NOW: Sending ping #" + String(gpsData.espNowPingCounter) + " to " + String(numReceivers) + " receiver(s)");
+  // webSerialLog("ESP-NOW: Sending ping #" + String(gpsData.espNowPingCounter) + " to " + String(numReceivers) + " receiver(s)");
 
   GpsEspNowPacket packet;
   packet.lat = gpsData.lat;
@@ -202,7 +202,7 @@ void sendGpsDataViaEspNow() {
       // Track successful transmission time for this specific client
       gpsData.espNowClients[i].lastTransmitTime = currentTime;
       lastTransmitTimes[i] = currentTime;
-      webSerialLog("ESP-NOW: Ping sent successfully to client " + String(i + 1));
+      // webSerialLog("ESP-NOW: Ping sent successfully to client " + String(i + 1));
     } else {
       webSerialLog("ESP-NOW: Failed to send ping to client " + String(i + 1));
     }
