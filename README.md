@@ -2,7 +2,7 @@
 
 A GPS system built on ESP32. This project reads GNSS data from a u-blox module and distributes it via TCP to NINA, HTTP, and ESP-NOW to connected clients and remote displays.
 
-![Dashboard](/images/dashboard.png)
+![Dashboard](/images/gps_dashboard.png)
 
 ## Table of Contents
 
