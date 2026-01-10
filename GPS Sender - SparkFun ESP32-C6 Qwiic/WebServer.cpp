@@ -108,8 +108,43 @@ const char index_html[] PROGMEM = R"rawliteral(
     .btn-danger { background: var(--danger); color: white; }
     .btn:hover { opacity: 0.9; }
 
-    .btn-muted { background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.1); color: var(--text-muted); padding: 8px 12px; font-size: 0.85rem; font-weight: normal; }
+    .btn-muted { background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.1); color: var(--text-muted); padding: 8px 12px; font-size: 0.85rem; font-weight: normal; border-radius: 8px; height: 38px; box-sizing: border-box; }
     .btn-muted:hover { background: rgba(255,255,255,0.15); color: white; border-color: rgba(255,255,255,0.3); }
+
+    /* Log Filter Select - Match button style */
+    #logFilter { 
+      background: rgba(255,255,255,0.08); 
+      border: 1px solid rgba(255,255,255,0.1); 
+      color: var(--text-muted); 
+      padding: 8px 12px; 
+      font-size: 0.85rem; 
+      font-weight: normal;
+      border-radius: 8px;
+      height: 38px;
+      box-sizing: border-box;
+      cursor: pointer;
+      appearance: none;
+      -webkit-appearance: none;
+      -moz-appearance: none;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath fill='%23aaaaaa' d='M0 0l6 8 6-8z'/%3E%3C/svg%3E");
+      background-repeat: no-repeat;
+      background-position: right 10px center;
+      padding-right: 30px;
+    }
+    #logFilter:hover {
+      background-color: rgba(255,255,255,0.15);
+      color: white;
+      border-color: rgba(255,255,255,0.3);
+    }
+    #logFilter:focus {
+      outline: none;
+      border-color: var(--accent);
+    }
+    #logFilter option {
+      background: #1e1e1e;
+      color: white;
+      padding: 8px;
+    }
 
     /* WiFi List */
     .wifi-list { margin-top: 10px; max-height: 150px; overflow-y: auto; }
@@ -376,7 +411,15 @@ const char index_html[] PROGMEM = R"rawliteral(
           <button class="btn-muted" style="flex: 1;" onclick="toggleAutoScroll()">
             <span id="autoScrollText">Auto-Scroll: ON</span>
           </button>
+          <button class="btn-muted" style="flex: 1;" onclick="copyLogs()">Copy Logs</button>
           <button class="btn-muted" style="flex: 1;" onclick="clearLogs()">Clear Logs</button>
+          <select class="btn-muted" style="flex: 1; cursor: pointer;" id="logFilter" onchange="applyLogFilter()">
+            <option value="all">Show All</option>
+            <option value="no-gps">Hide GPS</option>
+            <option value="no-espnow">Hide ESP-NOW</option>
+            <option value="gps-only">GPS Only</option>
+            <option value="espnow-only">ESP-NOW Only</option>
+          </select>
         </div>
         <div class="log-container" id="logContainer"></div>
       </div>
@@ -904,9 +947,20 @@ const char index_html[] PROGMEM = R"rawliteral(
       const timeStr = time.toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
       const msStr = String(time.getMilliseconds()).padStart(3, '0');
       
+      // Categorize log messages for filtering
+      const msgLower = message.toLowerCase();
+      if (msgLower.includes('gps') || msgLower.includes('satellites') || msgLower.includes('ttff') || msgLower.includes('fix acquired')) {
+        line.setAttribute('data-category', 'gps');
+      } else if (msgLower.includes('esp-now') || msgLower.includes('pong') || msgLower.includes('client')) {
+        line.setAttribute('data-category', 'espnow');
+      } else {
+        line.setAttribute('data-category', 'other');
+      }
+      
       line.innerHTML = `<span class="log-time">[${timeStr}.${msStr}]</span><span class="log-msg">${escapeHtml(message)}</span>`;
       
       logContainer.appendChild(line);
+      applyLogFilter();
       
       // Limit to 500 lines
       while (logContainer.children.length > 500) {
@@ -934,6 +988,68 @@ const char index_html[] PROGMEM = R"rawliteral(
     
     function clearLogs() {
       logContainer.innerHTML = '';
+    }
+    
+    function copyLogs() {
+      const lines = Array.from(logContainer.querySelectorAll('.log-line:not([style*="display: none"])'))
+        .map(line => {
+          const time = line.querySelector('.log-time').textContent;
+          const msg = line.querySelector('.log-msg').textContent;
+          return `${time} ${msg}`;
+        })
+        .join('\n');
+      
+      if (lines.length === 0) {
+        alert('No logs to copy');
+        return;
+      }
+      
+      navigator.clipboard.writeText(lines).then(() => {
+        const btn = event.target;
+        const originalText = btn.textContent;
+        btn.textContent = 'Copied!';
+        btn.style.color = 'var(--success)';
+        setTimeout(() => {
+          btn.textContent = originalText;
+          btn.style.color = '';
+        }, 1500);
+      }).catch(err => {
+        alert('Failed to copy logs: ' + err);
+      });
+    }
+    
+    function applyLogFilter() {
+      const filter = document.getElementById('logFilter').value;
+      const lines = logContainer.querySelectorAll('.log-line');
+      
+      lines.forEach(line => {
+        const category = line.getAttribute('data-category');
+        let show = true;
+        
+        switch(filter) {
+          case 'all':
+            show = true;
+            break;
+          case 'no-gps':
+            show = category !== 'gps';
+            break;
+          case 'no-espnow':
+            show = category !== 'espnow';
+            break;
+          case 'gps-only':
+            show = category === 'gps';
+            break;
+          case 'espnow-only':
+            show = category === 'espnow';
+            break;
+        }
+        
+        line.style.display = show ? '' : 'none';
+      });
+      
+      if (autoScroll) {
+        logContainer.scrollTop = logContainer.scrollHeight;
+      }
     }
     
     // Connect on page load
@@ -1251,7 +1367,23 @@ void webSerialLog(const String& message) {
     if (wsSerial.count() > 0) {
       JsonDocument doc;
       doc["msg"] = message;
-      doc["ts"] = millis();
+      
+      // Use real timestamp if system time has been set from GPS
+      time_t now;
+      time(&now);
+      if (now > 946684800) {  // After year 2000 (946684800 = Jan 1, 2000)
+        // System time is valid - use real timestamp
+        struct tm timeinfo;
+        localtime_r(&now, &timeinfo);
+        char timestamp[32];
+        strftime(timestamp, sizeof(timestamp), "%Y-%m-%d %H:%M:%S", &timeinfo);
+        doc["ts"] = String(timestamp);
+        doc["ts_type"] = "realtime";
+      } else {
+        // System time not set yet - use millis()
+        doc["ts"] = millis();
+        doc["ts_type"] = "uptime";
+      }
       
       String output;
       serializeJson(doc, output);

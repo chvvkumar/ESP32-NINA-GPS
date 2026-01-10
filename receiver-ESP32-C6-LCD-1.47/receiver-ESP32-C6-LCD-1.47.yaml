@@ -178,6 +178,8 @@ espnow:
   
   on_receive:
     - lambda: |-
+        #include <sys/time.h>
+        
         struct __attribute__((packed)) GpsEspNowPacket {
           double lat;
           double lon;
@@ -224,6 +226,34 @@ espnow:
         // Copy raw bytes to char array buffer.
         memcpy(id(raw_local_time), packet.localTime, 10);
         id(raw_local_time)[10] = 0; 
+        
+        // Sync system time from GPS local time string (HH:MM:SS format)
+        // Note: This is an approximation using local time. For precise UTC sync,
+        // sender should transmit UTC date/time components separately.
+        if (packet.fixType >= 2 && strlen(id(raw_local_time)) >= 8) {
+          int hour, minute, second;
+          if (sscanf(id(raw_local_time), "%d:%d:%d", &hour, &minute, &second) == 3) {
+            time_t now;
+            time(&now);
+            struct tm timeinfo;
+            localtime_r(&now, &timeinfo);
+            
+            // Update time components from GPS
+            timeinfo.tm_hour = hour;
+            timeinfo.tm_min = minute;
+            timeinfo.tm_sec = second;
+            
+            time_t new_time = mktime(&timeinfo);
+            struct timeval tv = { .tv_sec = new_time, .tv_usec = 0 };
+            settimeofday(&tv, NULL);
+            
+            static bool first_sync = true;
+            if (first_sync) {
+              ESP_LOGI("espnow", "System time synced from GPS: %s", id(raw_local_time));
+              first_sync = false;
+            }
+          }
+        }
         
         id(raw_station_ip) = packet.stationIp;
         id(last_ping_counter) = packet.pingCounter;

@@ -57,6 +57,7 @@ struct GPSData {
   
   bool ledState = false; 
   bool configSaved = false;
+  bool timeSynced = false;  // Track if system time has been synced from GPS
   
   // Demo Mode (sends fake GPS data)
   bool demoMode = false;
