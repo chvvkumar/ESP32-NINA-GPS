@@ -8,6 +8,7 @@
 #include "WebServer.h"
 
 void setupGPS() {
+  webSerialLog("Initializing I2C for GPS module");
   Wire.begin(I2C_SDA, I2C_SCL);
   Wire.setClock(400000);
   
@@ -16,25 +17,34 @@ void setupGPS() {
 
   if (myGNSS.begin(Wire, 0x42) == false) {
     Serial.println(F("u-blox GNSS not detected. Check wiring!"));
+    webSerialLog("ERROR: u-blox GNSS not detected on I2C");
     gpsData.isConnected = false;
   } else {
     Serial.println(F("u-blox GNSS connected"));
+    webSerialLog("u-blox GNSS module connected successfully");
     gpsData.isConnected = true;
     
     myGNSS.setI2COutput(COM_TYPE_UBX); 
     myGNSS.setMeasurementRate(gpsData.gpsInterval);
     myGNSS.setAutoNAVSAT(true);
+    webSerialLog("GPS configured - Update rate: " + String(gpsData.gpsInterval) + "ms");
   }
 }
 
 void generateDemoData() {
   // Generate dummy GPS data that simulates movement
   static unsigned long lastUpdate = 0;
+  static bool demoStartLogged = false;
   static double demoLat = 30.2672;  // Austin, TX area
   static double demoLon = -97.7431;
   static float demoAlt = 150.0;
   static float demoSpeed = 5.5;
   static float demoHeading = 90.0;
+  
+  if (!demoStartLogged) {
+    webSerialLog("Demo mode active - Generating simulated GPS data");
+    demoStartLogged = true;
+  }
   
   unsigned long now = millis();
   if (now - lastUpdate < 1000) return; // Update demo data every second
@@ -110,6 +120,7 @@ void pollGPS() {
     lastInterval = gpsData.gpsInterval;
     Serial.print(F("GPS Rate updated to: "));
     Serial.println(lastInterval);
+    webSerialLog("GPS update rate changed to " + String(lastInterval) + "ms");
   }
 
   while(myGNSS.checkUblox()); 

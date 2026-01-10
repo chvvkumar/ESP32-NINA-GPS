@@ -4,6 +4,7 @@
 #include "TcpServer.h"
 #include "Config.h"
 #include "Context.h"
+#include "WebServer.h"
 
 AsyncServer tcpServer(TCP_PORT);
 
@@ -64,6 +65,7 @@ String generateTPV() {
 static void handleClientData(void* arg, AsyncClient* client, void* data, size_t len) {
   String cmd = String((char*)data).substring(0, len);
   if (cmd.indexOf("?WATCH") != -1) {
+    webSerialLog("GPSD client registered: " + client->remoteIP().toString());
     if (xSemaphoreTake(clientsMutex, portMAX_DELAY)) {
       for (auto& ctx : clients) {
         if (ctx.client == client) {
@@ -91,6 +93,9 @@ static void handleNewClient(void* arg, AsyncClient* client) {
   ctx.client = client;
   ctx.isGpsd = false; 
   
+  String clientIP = client->remoteIP().toString();
+  webSerialLog("TCP client connected: " + clientIP);
+  
   if (xSemaphoreTake(clientsMutex, portMAX_DELAY)) {
     clients.push_back(ctx);
     newClientConnected = true;
@@ -98,6 +103,8 @@ static void handleNewClient(void* arg, AsyncClient* client) {
   }
 
   client->onDisconnect([](void* arg, AsyncClient* c) {
+    String clientIP = c->remoteIP().toString();
+    webSerialLog("TCP client disconnected: " + clientIP);
     if (xSemaphoreTake(clientsMutex, portMAX_DELAY)) {
       for (auto it = clients.begin(); it != clients.end(); ++it) {
         if (it->client == c) {
@@ -115,6 +122,7 @@ void setupTCP() {
   clientsMutex = xSemaphoreCreateMutex();
   tcpServer.onClient(&handleNewClient, NULL);
   tcpServer.begin();
+  Serial.println("TCP server started on port " + String(TCP_PORT));
 }
 
 bool hasNewConnections() {

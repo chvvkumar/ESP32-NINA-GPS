@@ -104,8 +104,10 @@ void setupEspNow() {
   // Print sender's MAC address for receiver configuration
   Serial.print("ESP-NOW Sender MAC: ");
   Serial.println(WiFi.macAddress());
+  webSerialLog("ESP-NOW Sender MAC: " + WiFi.macAddress());
   
   Serial.printf("Configured %d receiver(s):\n", numReceivers);
+  webSerialLog("ESP-NOW: Configuring " + String(numReceivers) + " receiver(s)");
   for (int i = 0; i < numReceivers; i++) {
     Serial.printf("  Receiver %d: ", i + 1);
     for (int j = 0; j < 6; j++) {
@@ -117,10 +119,12 @@ void setupEspNow() {
 
   if (esp_now_init() != ESP_OK) {
     Serial.println("Error initializing ESP-NOW");
+    webSerialLog("ERROR: ESP-NOW initialization failed");
     gpsData.espNowStatus = "Init Failed";
     gpsData.espNowError = "esp_now_init failed";
     return;
   }
+  webSerialLog("ESP-NOW initialized successfully");
 
   // Register Send and Receive Callbacks
   esp_now_register_send_cb(OnDataSent);
@@ -154,9 +158,11 @@ void setupEspNow() {
   if (peersAdded > 0) {
     gpsData.espNowStatus = "Ready";
     Serial.printf("ESP-NOW ready with %d peer(s)\n", peersAdded);
+    webSerialLog("ESP-NOW ready with " + String(peersAdded) + " peer(s)");
   } else {
     gpsData.espNowStatus = "Peer Error";
     gpsData.espNowError = "No peers added";
+    webSerialLog("ERROR: ESP-NOW - No peers could be added");
   }
 }
 
