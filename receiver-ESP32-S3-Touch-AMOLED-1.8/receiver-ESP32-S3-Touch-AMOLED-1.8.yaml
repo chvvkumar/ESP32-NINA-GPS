@@ -4,6 +4,14 @@ esphome:
   on_boot:
     priority: 600
     then:
+      # Reset LCD and touchscreen controllers on boot
+      - output.turn_off: lcd_reset
+      - output.turn_off: touchscreen_reset
+      - delay: 100ms
+      - output.turn_on: lcd_reset
+      - output.turn_on: touchscreen_reset
+      - delay: 200ms
+
       - delay: 2s
       - lambda: |-
           // Initialize activity timer
@@ -13,19 +21,13 @@ esphome:
           auto ip_str = id(wifi_ip_address).state;
           lv_label_set_text(id(value_receiver_ip), ip_str.c_str());
 
-          // Initialize bar range from history for all pages
+          // Initialize bar range from history (only canvas2 now has the bar)
           int max_hist = (int)id(gps_max_sats).state;
           if (max_hist < 10) max_hist = 24; 
-          lv_bar_set_range(id(lbl_sats_canvas1), 0, max_hist);
-          lv_obj_invalidate(id(lbl_sats_canvas1));
           lv_bar_set_range(id(lbl_sats_canvas2), 0, max_hist);
           lv_obj_invalidate(id(lbl_sats_canvas2));
-          // lv_bar_set_range(id(lbl_sats_canvas3), 0, max_hist);
-          // lv_obj_invalidate(id(lbl_sats_canvas3));
-          // lv_bar_set_range(id(lbl_sats_canvas4), 0, max_hist);
-          // lv_obj_invalidate(id(lbl_sats_canvas4));
 
-          // Initialize brightness slider on canvas_5 to match current brightness
+          // Initialize brightness slider to match current brightness
           float current_brightness = id(display_brightness).state;
           int slider_value = (int)((current_brightness - 10) / 0.9);
           lv_slider_set_value(id(lv_slider_10), slider_value, LV_ANIM_OFF);
@@ -35,7 +37,7 @@ esphome:
           snprintf(brightness_buf, sizeof(brightness_buf), "%.0f%%", current_brightness);
           lv_label_set_text(id(lbl_brightness_value), brightness_buf);
           
-          // Initialize timeout slider on canvas_5 to match current timeout
+          // Initialize timeout slider to match current timeout
           float current_timeout = id(display_sleep_timeout).state;
           // Map timeout to slider index: 5, 10, 15, 30, 60, 120, 180, 240, 300
           int slider_index = 4; // Default to 60s (1m)
@@ -65,46 +67,63 @@ esphome:
           }
           lv_label_set_text(id(lbl_timeout_value), timeout_buf);
           
-          // Initialize sleep button state on canvas_5
+          // Initialize sleep switch state
           if (id(sleep_timeout_enabled)) {
-            lv_obj_add_state(id(lv_button_enablesleep), LV_STATE_CHECKED);
+            lv_obj_add_state(id(lv_switch_enablesleep), LV_STATE_CHECKED);
           } else {
-            lv_obj_clear_state(id(lv_button_enablesleep), LV_STATE_CHECKED);
+            lv_obj_clear_state(id(lv_switch_enablesleep), LV_STATE_CHECKED);
           }
 
-      # Restore the last displayed LVGL page
+          // Initialize dim timeout slider to match current timeout
+          float current_dim_timeout = id(display_dim_timeout).state;
+          int dim_slider_index = 3; // Default to 30s
+          if (current_dim_timeout <= 5) dim_slider_index = 0;
+          else if (current_dim_timeout <= 10) dim_slider_index = 1;
+          else if (current_dim_timeout <= 15) dim_slider_index = 2;
+          else if (current_dim_timeout <= 30) dim_slider_index = 3;
+          else if (current_dim_timeout <= 60) dim_slider_index = 4;
+          else if (current_dim_timeout <= 120) dim_slider_index = 5;
+          else if (current_dim_timeout <= 180) dim_slider_index = 6;
+          else if (current_dim_timeout <= 240) dim_slider_index = 7;
+          else dim_slider_index = 8;
+          lv_slider_set_value(id(lv_slider_dim_timeout), dim_slider_index, LV_ANIM_OFF);
+          
+          // Set dim timeout value label
+          char dim_timeout_buf[32];
+          if (current_dim_timeout < 60) {
+            snprintf(dim_timeout_buf, sizeof(dim_timeout_buf), "%.0fs", current_dim_timeout);
+          } else {
+            int minutes = (int)current_dim_timeout / 60;
+            snprintf(dim_timeout_buf, sizeof(dim_timeout_buf), "%dm", minutes);
+          }
+          lv_label_set_text(id(lbl_dim_timeout_value), dim_timeout_buf);
+          
+          // Initialize dim switch state
+          if (id(dim_timeout_enabled)) {
+            lv_obj_add_state(id(lv_switch_enabledim), LV_STATE_CHECKED);
+          } else {
+            lv_obj_clear_state(id(lv_switch_enabledim), LV_STATE_CHECKED);
+          }
+
+      # Restore the last displayed tab
       - delay: 500ms
-      - if:
-          condition:
-            lambda: 'return id(display_page).has_state() && id(display_page).current_option() == "Home";'
-          then:
-            - lvgl.page.show: canvas_1
-      - if:
-          condition:
-            lambda: 'return id(display_page).has_state() && id(display_page).current_option() == "GPS Accuracy";'
-          then:
-            - lvgl.page.show: canvas_2
-      - if:
-          condition:
-            lambda: 'return id(display_page).has_state() && id(display_page).current_option() == "Speed";'
-          then:
-            - lvgl.page.show: canvas_3
-      - if:
-          condition:
-            lambda: 'return id(display_page).has_state() && id(display_page).current_option() == "Network Info";'
-          then:
-            - lvgl.page.show: canvas_4
-      - if:
-          condition:
-            lambda: 'return id(display_page).has_state() && id(display_page).current_option() == "Settings";'
-          then:
-            - lvgl.page.show: canvas_5
+      - lambda: |-
+          if (id(display_page).has_state()) {
+            int tab_index = 0;
+            auto current = id(display_page).current_option();
+            if (current == "Home") tab_index = 0;
+            else if (current == "GPS Accuracy") tab_index = 1;
+            else if (current == "Speed") tab_index = 2;
+            else if (current == "Network Info") tab_index = 3;
+            else if (current == "Settings") tab_index = 4;
+            else if (current == "Reboot") tab_index = 5;
+            lv_tabview_set_act(id(lv_tabview_15), tab_index, LV_ANIM_OFF);
+          }
 
 esp32:
   variant: esp32s3
   framework:
     type: esp-idf
-    # Add optimization flags for performance
     sdkconfig_options:
       COMPILER_OPTIMIZATION_SIZE: y
       COMPILER_OPTIMIZATION_LEVEL_RELEASE: y
@@ -112,14 +131,25 @@ esp32:
       CONFIG_HEAP_POISONING_DISABLED: y
   flash_size: 16MB
 
-# Enable logging
+output:
+  - platform: gpio
+    id: touchscreen_reset
+    pin:
+      pca9554: xca9554_hub
+      number: 2
+      mode: OUTPUT
+      inverted: false
+  - platform: gpio
+    id: lcd_reset
+    pin:
+      pca9554: xca9554_hub
+      number: 1
+      mode: OUTPUT
+      inverted: false
+
 logger:
-  level: WARN  # Changed from DEBUG (default) to WARN to save CPU
+  level: WARN
 
-# debug:  # Removed debug component to save resources
-#   update_interval: 5s
-
-# Enable Home Assistant API
 api:
   encryption:
     key: "w32Msmy93F1ixn76Ywdas9UVNLr8kT9A7MrYJxGsmBg="
@@ -134,14 +164,12 @@ wifi:
   power_save_mode: none
   on_connect:
     - lambda: |-
-        // Update WiFi MAC text sensor on connection
         uint8_t mac_bytes[6];
         esp_read_mac(mac_bytes, ESP_MAC_WIFI_STA);
         char mac_str[18];
         snprintf(mac_str, sizeof(mac_str), "%02X:%02X:%02X:%02X:%02X:%02X",
                  mac_bytes[0], mac_bytes[1], mac_bytes[2], mac_bytes[3], mac_bytes[4], mac_bytes[5]);
         id(wifi_mac_address).publish_state(mac_str);
-  # Enable fallback hotspot (captive portal) in case wifi connection fails
   ap:
     ssid: "Amoled Fallback Hotspot"
     password: "kkkkkkkk"
@@ -163,9 +191,6 @@ i2c:
   scan: true
   frequency: 100kHz
 
-# =============================================
-# PCA9554 GPIO Expander for buttons (XCA9554 compatible)
-# =============================================
 pca9554:
   - id: xca9554_hub
     address: 0x20
@@ -175,49 +200,56 @@ spi:
   clk_pin: GPIO11
   data_pins: [GPIO4, GPIO5, GPIO6, GPIO7]
 
-# =============================================
-# Interval - Display Sleep Monitor
-# =============================================
 interval:
   - interval: 1s
     then:
       - lambda: |-
-          // Check if display should sleep
-          float timeout = id(display_sleep_timeout).state;
+          uint32_t now = millis();
+          uint32_t elapsed = (now - id(last_activity_time)) / 1000;
           
-          // Skip if timeout is disabled via toggle or set to 0
-          if (!id(sleep_timeout_enabled) || timeout <= 0) {
-            return;
-          }
+          float dim_timeout = id(display_dim_timeout).state;
+          float sleep_timeout = id(display_sleep_timeout).state;
           
-          // Skip if already sleeping
+          // Already sleeping, nothing to do
           if (id(display_sleeping)) {
             return;
           }
           
-          // Check if timeout exceeded
-          uint32_t now = millis();
-          uint32_t elapsed = (now - id(last_activity_time)) / 1000;  // Convert to seconds
+          // Check for sleep (full off) - only if enabled
+          if (id(sleep_timeout_enabled) && sleep_timeout > 0) {
+            // Sleep timeout is relative to dim timeout if dim is enabled
+            float effective_sleep_time;
+            if (id(dim_timeout_enabled) && dim_timeout > 0) {
+              effective_sleep_time = dim_timeout + sleep_timeout;
+            } else {
+              effective_sleep_time = sleep_timeout;
+            }
+            
+            if (elapsed >= (uint32_t)effective_sleep_time) {
+              id(display_sleeping) = true;
+              id(display_dimmed) = false;
+              id(amoled_display).set_brightness(0);
+              ESP_LOGI("sleep", "Display going to sleep after %d seconds of inactivity", (int)effective_sleep_time);
+              return;
+            }
+          }
           
-          if (elapsed >= (uint32_t)timeout) {
-            // Put display to sleep
-            id(display_sleeping) = true;
-            id(amoled_display).set_brightness(0);
-            ESP_LOGI("sleep", "Display going to sleep after %d seconds of inactivity", (int)timeout);
+          // Check for dim - only if enabled and not already dimmed
+          if (id(dim_timeout_enabled) && dim_timeout > 0 && !id(display_dimmed)) {
+            if (elapsed >= (uint32_t)dim_timeout) {
+              id(display_dimmed) = true;
+              // Dim to 15% - calculate brightness value (15% maps to roughly 14 in the 0-255 range)
+              id(amoled_display).set_brightness(14);
+              ESP_LOGI("dim", "Display dimming to 15%% after %d seconds of inactivity", (int)dim_timeout);
+            }
           }
 
-# =============================================
-# Button
-# =============================================
 button:
   - platform: restart
-    name:  "Reboot"
+    name: "Reboot"
     id: device_reboot
     internal: false
 
-# =============================================
-# Binary Sensors - Side Buttons
-# =============================================
 binary_sensor:
   - platform: gpio
     id: button_brightness
@@ -234,36 +266,37 @@ binary_sensor:
     on_press:
       then:
         - lambda: |-
-            // Reset sleep timer
             id(last_activity_time) = millis();
-            
-            // Wake display if sleeping
             if (id(display_sleeping)) {
               id(display_sleeping) = false;
+              id(display_dimmed) = false;
               float brightness = id(display_brightness).state;
               id(amoled_display).set_brightness((brightness - 10) * 2.8333);
               ESP_LOGI("sleep", "Display woken by brightness button");
-              return;  // Don't change brightness on wake, just wake up
+              return;
             }
-            
-            // Cycle through brightness: 0%, 20%, 40%, 60%, 80%, 100%
+            if (id(display_dimmed)) {
+              id(display_dimmed) = false;
+              float brightness = id(display_brightness).state;
+              id(amoled_display).set_brightness((brightness - 10) * 2.8333);
+              ESP_LOGI("dim", "Display restored from dim by brightness button");
+              return;
+            }
             float current = id(display_brightness).state;
             float next_brightness;
-            
             if (current <= 10) {
-              next_brightness = 30;  // 0% -> 20%
+              next_brightness = 30;
             } else if (current <= 30) {
-              next_brightness = 50;  // 20% -> 40%
+              next_brightness = 50;
             } else if (current <= 50) {
-              next_brightness = 70;  // 40% -> 60%
+              next_brightness = 70;
             } else if (current <= 70) {
-              next_brightness = 90;  // 60% -> 80%
+              next_brightness = 90;
             } else if (current <= 90) {
-              next_brightness = 100; // 80% -> 100%
+              next_brightness = 100;
             } else {
-              next_brightness = 10;  // 100% -> 0%
+              next_brightness = 10;
             }
-            
             id(display_brightness).publish_state(next_brightness);
             ESP_LOGI("brightness", "Cycling brightness from %.0f to %.0f", current, next_brightness);
 
@@ -283,36 +316,32 @@ binary_sensor:
     on_press:
       then:
         - lambda: |-
-            // Reset sleep timer
             id(last_activity_time) = millis();
-            
-            // Wake display if sleeping
             if (id(display_sleeping)) {
               id(display_sleeping) = false;
+              id(display_dimmed) = false;
               float brightness = id(display_brightness).state;
               id(amoled_display).set_brightness((brightness - 10) * 2.8333);
               ESP_LOGI("sleep", "Display woken by next page button");
-              return;  // Don't change page on wake, just wake up
+              return;
             }
+            if (id(display_dimmed)) {
+              id(display_dimmed) = false;
+              float brightness = id(display_brightness).state;
+              id(amoled_display).set_brightness((brightness - 10) * 2.8333);
+              ESP_LOGI("dim", "Display restored from dim by next page button");
+              return;
+            }
+            // Cycle to next tab
+            uint16_t current_tab = lv_tabview_get_tab_act(id(lv_tabview_15));
+            uint16_t next_tab = (current_tab + 1) % 6;  // 6 tabs total
+            lv_tabview_set_act(id(lv_tabview_15), next_tab, LV_ANIM_ON);
             
-            // Cycle to next page
-            auto current_page = id(display_page).current_option();
-            ESP_LOGI("button", "Next button pressed, current page: %s", current_page);
-            if (current_page == "Home") {
-              id(display_page).publish_state("GPS Accuracy");
-            } else if (current_page == "GPS Accuracy") {
-              id(display_page).publish_state("Speed");
-            } else if (current_page == "Speed") {
-              id(display_page).publish_state("Network Info");
-            } else if (current_page == "Network Info") {
-              id(display_page).publish_state("Settings");
-            } else if (current_page == "Settings") {
-              id(display_page).publish_state("Home");
-            }
+            // Update display_page select to match
+            const char* tab_names[] = {"Home", "GPS Accuracy", "Speed", "Network Info", "Settings", "Reboot"};
+            id(display_page).publish_state(tab_names[next_tab]);
+            ESP_LOGI("button", "Next button pressed, switching to tab %d (%s)", next_tab, tab_names[next_tab]);
 
-# =========================================================================
-#  ESP-NOW CONFIGURATION
-# =========================================================================
 espnow:
   id: espnow_component
   auto_add_peer: true
@@ -321,7 +350,6 @@ espnow:
     - "B4:3A:45:99:70:80"
   on_unknown_peer:
     - lambda: |-
-        // Update ESP-NOW MAC when peer is added
         uint8_t mac[6];
         esp_read_mac(mac, ESP_MAC_WIFI_STA);
         char mac_str[18];
@@ -333,7 +361,6 @@ espnow:
     - lambda: |-
         #include <sys/time.h>
         
-        // Blink LED when data arrives
         lv_led_on(id(lv_led_7));
         
         struct __attribute__((packed)) GpsEspNowPacket {
@@ -352,12 +379,12 @@ espnow:
           float hAcc;
           float vAcc;
           uint32_t stationIp;
-          uint32_t pingCounter;  // Ping counter for connection tracking
+          uint32_t pingCounter;
         };
 
         if (size != sizeof(GpsEspNowPacket)) {
           ESP_LOGW("espnow", "Received unexpected packet size: %d", size);
-          lv_led_off(id(lv_led_7));  // Turn off LED on error
+          lv_led_off(id(lv_led_7));
           return;
         }
         
@@ -368,7 +395,6 @@ espnow:
         
         id(gps_connection_status).publish_state("Connected");
 
-        // Publish to Home Assistant Sensors
         id(gps_lat).publish_state(packet.lat);
         id(gps_lon).publish_state(packet.lon);
         id(gps_alt).publish_state(packet.alt);
@@ -378,9 +404,6 @@ espnow:
         id(gps_sats_visible).publish_state(packet.satsVisible);
         id(gps_local_time).publish_state(packet.localTime);
         
-        // Sync system time from GPS local time string (HH:MM:SS format)
-        // Note: This is an approximation using local time. For precise UTC sync,
-        // sender should transmit UTC date/time components separately.
         if (packet.fixType >= 2 && strlen(packet.localTime) >= 8) {
           int hour, minute, second;
           if (sscanf(packet.localTime, "%d:%d:%d", &hour, &minute, &second) == 3) {
@@ -388,16 +411,12 @@ espnow:
             time(&now);
             struct tm timeinfo;
             localtime_r(&now, &timeinfo);
-            
-            // Update time components from GPS
             timeinfo.tm_hour = hour;
             timeinfo.tm_min = minute;
             timeinfo.tm_sec = second;
-            
             time_t new_time = mktime(&timeinfo);
             struct timeval tv = { .tv_sec = new_time, .tv_usec = 0 };
             settimeofday(&tv, NULL);
-            
             static bool first_sync = true;
             if (first_sync) {
               ESP_LOGI("espnow", "System time synced from GPS: %s", packet.localTime);
@@ -406,7 +425,6 @@ espnow:
           }
         }
 
-        // Determine Fix Status
         std::string status = "Unknown";
         if (packet.fixType == 0) status = "No Fix";
         else if (packet.fixType == 1) status = "Dead Reckoning";
@@ -414,7 +432,6 @@ espnow:
         else if (packet.fixType == 3) status = "3D Fix";
         id(gps_fix_status).publish_state(status);
         
-        // Update LVGL Display
         char final_buf[64];
 
         snprintf(final_buf, sizeof(final_buf), "%.5f", packet.lat);
@@ -428,7 +445,6 @@ espnow:
 
         lv_label_set_text(id(lbl_time), packet.localTime);
         
-        // Dynamic bar range
         int current_sats = packet.sats;
         int visible_sats = packet.satsVisible;
         int max_sats = (int)id(gps_max_sats).state;
@@ -438,47 +454,25 @@ espnow:
           id(gps_max_sats).publish_state(max_sats);
         }
         
-        // Update all satellite bars on all pages
-        lv_bar_set_range(id(lbl_sats_canvas1), 0, visible_sats > 0 ? visible_sats : max_sats);
-        lv_bar_set_value(id(lbl_sats_canvas1), current_sats, LV_ANIM_OFF);
-        lv_obj_invalidate(id(lbl_sats_canvas1));
-        
+        // Update satellite bar on GPS Accuracy tab only
         lv_bar_set_range(id(lbl_sats_canvas2), 0, visible_sats > 0 ? visible_sats : max_sats);
         lv_bar_set_value(id(lbl_sats_canvas2), current_sats, LV_ANIM_OFF);
         lv_obj_invalidate(id(lbl_sats_canvas2));
-        
-        // lv_bar_set_range(id(lbl_sats_canvas3), 0, visible_sats > 0 ? visible_sats : max_sats);
-        // lv_bar_set_value(id(lbl_sats_canvas3), current_sats, LV_ANIM_OFF);
-        // lv_obj_invalidate(id(lbl_sats_canvas3));
-        
-        // lv_bar_set_range(id(lbl_sats_canvas4), 0, visible_sats > 0 ? visible_sats : max_sats);
-        // lv_bar_set_value(id(lbl_sats_canvas4), current_sats, LV_ANIM_OFF);
-        // lv_obj_invalidate(id(lbl_sats_canvas4));
 
-        // Update status on Home page (canvas_1)
+        // Update status on Home tab
         lv_label_set_text(id(lbl_status_canvas1), status.c_str());
-        // Update status on Accuracy page (canvas_2)
+        // Update status on GPS Accuracy tab
         lv_label_set_text(id(lbl_status_canvas2), status.c_str());
 
         snprintf(final_buf, sizeof(final_buf), "%d/%d", packet.sats, packet.satsVisible);
-        // Update satellite status on Home page (canvas_1)
         lv_label_set_text(id(sat_status_canvas1), final_buf);
-        // Update satellite status on Accuracy page (canvas_2)
         lv_label_set_text(id(sat_status_canvas2), final_buf);
 
-        // Accuracy page
         snprintf(final_buf, sizeof(final_buf), "%.1f m", packet.hAcc);
         lv_label_set_text(id(value_hacc), final_buf);
 
         snprintf(final_buf, sizeof(final_buf), "%.1f m", packet.vAcc);
         lv_label_set_text(id(value_vacc), final_buf);
-
-        const char* directions[] = {"N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE", 
-                                     "S", "SSW", "SW", "WSW", "W", "WNW", "NW", "NNW"};
-        int dir_index = (int)((packet.heading + 11.25) / 22.5) % 16;
-        snprintf(final_buf, sizeof(final_buf), "%.0f° %s", packet.heading, directions[dir_index]);
-        // lv_label_set_text(id(value_hdg), final_buf); // Widget not defined in lvgl section
-        // lv_label_set_text(id(lbl_heading_speed), final_buf); // Widget not defined in lvgl section
 
         snprintf(final_buf, sizeof(final_buf), "%.2f", packet.hdop);
         lv_label_set_text(id(val_hdop), final_buf);
@@ -489,13 +483,10 @@ espnow:
         snprintf(final_buf, sizeof(final_buf), "%.2f", packet.vdop);
         lv_label_set_text(id(val_vdop), final_buf);
 
-        // Speed (m/s to mph)
         float speed_mph = packet.speed * 2.23694;
         snprintf(final_buf, sizeof(final_buf), "%.1f", speed_mph);
         lv_label_set_text(id(val_speed), final_buf);
-        // lv_bar_set_value(id(bar_speed), (int)speed_mph, LV_ANIM_OFF); // Widget not defined in lvgl section
 
-        // Station IP
         uint8_t ip_bytes[4];
         ip_bytes[0] = (packet.stationIp >> 0) & 0xFF;
         ip_bytes[1] = (packet.stationIp >> 8) & 0xFF;
@@ -507,12 +498,8 @@ espnow:
         id(gps_station_ip).publish_state(ip_str);
         lv_label_set_text(id(value_gps_ip), final_buf);
         
-        ESP_LOGI("espnow", "Ping received #%u from sender", packet.pingCounter);
-        
-        // Store ping counter for pong response
         id(last_ping_counter) = packet.pingCounter;
     
-    # Send pong response back to sender
     - espnow.send:
         address: !lambda |-
           std::array<uint8_t, 6> addr;
@@ -524,22 +511,16 @@ espnow:
           };
           PongPacket pong;
           pong.pingCounter = id(last_ping_counter);
-          
           ESP_LOGI("espnow", "Sending pong response for ping #%u", pong.pingCounter);
-          
           return std::vector<uint8_t>((uint8_t*)&pong, (uint8_t*)&pong + sizeof(PongPacket));
         id: espnow_component
         wait_for_sent: true
         continue_on_error: true
     
-    # Turn off LED after configurable duration
     - delay: !lambda "return id(led_blink_duration).state;"
     - lambda: |-
         lv_led_off(id(lv_led_7));
 
-# =========================================================================
-#  GLOBALS
-# =========================================================================
 globals:
   - id: last_ping_counter
     type: uint32_t
@@ -561,9 +542,16 @@ globals:
     restore_value: yes
     initial_value: 'true'
 
-# =========================================================================
-#  SENSORS
-# =========================================================================
+  - id: display_dimmed
+    type: bool
+    restore_value: no
+    initial_value: 'false'
+  
+  - id: dim_timeout_enabled
+    type: bool
+    restore_value: yes
+    initial_value: 'true'
+
 sensor:
   - platform: template
     id: gps_lat
@@ -614,19 +602,6 @@ sensor:
     name: "WiFi Signal"
     internal: true
 
-  # Removed debug sensors to save resources
-  # - platform: debug
-  #   free:
-  #     name: "Heap Free"
-  #   block:
-  #     name: "Heap Max Block"
-  #   loop_time:
-  #     name: "Loop Time"
-  #   psram:
-  #     name: "Free PSRAM"
-  #   cpu_frequency:
-  #     name: "CPU Frequency"
-
 text_sensor:
   - platform: wifi_info
     mac_address:
@@ -669,13 +644,6 @@ text_sensor:
     id: espnow_mac_address
     name: "ESP-NOW MAC Address"
     internal: false
-
-  # Removed debug text sensors to save resources
-  # - platform: debug
-  #   device:
-  #     name: "Device Info"
-  #   reset_reason:
-  #     name: "Reset Reason"
 
 number:
   - platform: template
@@ -729,6 +697,19 @@ number:
     mode: box
     internal: false
 
+  - platform: template
+    name: "Display Dim Timeout"
+    id: display_dim_timeout
+    min_value: 0
+    max_value: 300
+    step: 5
+    initial_value: 30
+    unit_of_measurement: "s"
+    optimistic: true
+    restore_value: true
+    mode: box
+    internal: false
+
 select:
   - platform: template
     name: "Display Rotation"
@@ -740,7 +721,6 @@ select:
     on_value:
       then:
         - lambda: |-
-            // Set display rotation
             auto rotation = esphome::display::DISPLAY_ROTATION_0_DEGREES;
             if (x == "0°" || x == "0° Mirror") rotation = esphome::display::DISPLAY_ROTATION_0_DEGREES;
             else if (x == "90°" || x == "90° Mirror") rotation = esphome::display::DISPLAY_ROTATION_90_DEGREES;
@@ -748,11 +728,9 @@ select:
             else if (x == "270°" || x == "270° Mirror") rotation = esphome::display::DISPLAY_ROTATION_270_DEGREES;
             id(amoled_display).set_rotation(rotation);
             
-            // Set LVGL rotation
             auto disp = lv_disp_get_default();
             if (disp != nullptr) {
               lv_disp_rot_t lvgl_rot = LV_DISP_ROT_NONE;
-              
               if (x == "0°") lvgl_rot = LV_DISP_ROT_NONE;
               else if (x == "90°") lvgl_rot = LV_DISP_ROT_90;
               else if (x == "180°") lvgl_rot = LV_DISP_ROT_180;
@@ -761,14 +739,10 @@ select:
               else if (x == "90° Mirror") lvgl_rot = LV_DISP_ROT_90;
               else if (x == "180° Mirror") lvgl_rot = LV_DISP_ROT_180;
               else if (x == "270° Mirror") lvgl_rot = LV_DISP_ROT_270;
-              
               lv_disp_set_rotation(disp, lvgl_rot);
-              
-              // Apply mirror effect for mirror options
               if (x.find("Mirror") != std::string::npos) {
-                lv_obj_set_style_transform_angle(lv_scr_act(), 1800, 0);  // 180 degrees = flip
+                lv_obj_set_style_transform_angle(lv_scr_act(), 1800, 0);
               }
-              
               lv_obj_invalidate(lv_scr_act());
               ESP_LOGI("rotation", "Display rotation set to: %s", x.c_str());
             }
@@ -782,40 +756,23 @@ select:
       - "Speed"
       - "Network Info"
       - "Settings"
+      - "Reboot"
     initial_option: "Home"
     optimistic: true
     restore_value: true
     on_value:
       then:
-        - if:
-            condition:
-              lambda: 'return x == "Home";'
-            then:
-              - lvgl.page.show: canvas_1
-        - if:
-            condition:
-              lambda: 'return x == "GPS Accuracy";'
-            then:
-              - lvgl.page.show: canvas_2
-        - if:
-            condition:
-              lambda: 'return x == "Speed";'
-            then:
-              - lvgl.page.show: canvas_3
-        - if:
-            condition:
-              lambda: 'return x == "Network Info";'
-            then:
-              - lvgl.page.show: canvas_4
-        - if:
-            condition:
-              lambda: 'return x == "Settings";'
-            then:
-              - lvgl.page.show: canvas_5
+        - lambda: |-
+            int tab_index = 0;
+            if (x == "Home") tab_index = 0;
+            else if (x == "GPS Accuracy") tab_index = 1;
+            else if (x == "Speed") tab_index = 2;
+            else if (x == "Network Info") tab_index = 3;
+            else if (x == "Settings") tab_index = 4;
+            else if (x == "Reboot") tab_index = 5;
+            lv_tabview_set_act(id(lv_tabview_15), tab_index, LV_ANIM_ON);
+            ESP_LOGI("display", "Switching to tab %d (%s)", tab_index, x.c_str());
 
-# =============================================
-# Touchscreen configuration
-# =============================================
 touchscreen:
   platform: ft5x06
   display: amoled_display
@@ -825,18 +782,22 @@ touchscreen:
   interrupt_pin: GPIO21
   on_touch:
     - lambda: |-
-        // Reset sleep timer
         id(last_activity_time) = millis();
-        
-        // Wake display if sleeping
         if (id(display_sleeping)) {
           id(display_sleeping) = false;
+          id(display_dimmed) = false;
           float brightness = id(display_brightness).state;
           id(amoled_display).set_brightness((brightness - 10) * 2.8333);
           ESP_LOGI("sleep", "Display woken by touchscreen");
-          return;  // Don't process touch on wake, just wake up
+          return;
         }
-        
+        if (id(display_dimmed)) {
+          id(display_dimmed) = false;
+          float brightness = id(display_brightness).state;
+          id(amoled_display).set_brightness((brightness - 10) * 2.8333);
+          ESP_LOGI("dim", "Display restored from dim by touchscreen");
+          return;
+        }
         ESP_LOGI("cal", "x=%d, y=%d, x_raw=%d, y_raw=%0d",
           touch.x,
           touch.y,
@@ -844,9 +805,6 @@ touchscreen:
           touch.y_raw
         );
 
-# =============================================
-# Display configuration
-# =============================================
 display:
   - platform: mipi_spi
     id: amoled_display
@@ -857,592 +815,649 @@ display:
       height: 448
     model: WAVESHARE-ESP32-S3-TOUCH-AMOLED-1.75
     cs_pin: GPIO12
-      
-# =============================================
-# LVGL
-# =============================================
+
 lvgl:
-  pages:
-    - id: canvas_1
-      bg_color: 0x000000
-      on_swipe_left:
-        - select.set:
-            id: display_page
-            option: "GPS Accuracy"
-      on_swipe_right:
-        - select.set:
-            id: display_page
-            option: "Settings"
-      widgets:
-        - label:
-            id: lbl_lat
-            x: 0
-            y: 133
-            width: 365
-            height: 40
-            text: "LATITUDE"
-            text_color: 0xE10522
-            text_align: CENTER
-            text_font: montserrat_36
-
-        - label:
-            id: lat_value
-            x: 0
-            y: 172
-            width: 365
-            height: 50
-            text: "38.75814"
-            text_color: 0xE10522
-            text_align: CENTER
-            long_mode: DOT
-            text_font: atkinson_48
-
-        - label:
-            id: lbl_lon
-            x: 0
-            y: 242
-            width: 365
-            height: 40
-            text: "LONGITUDE"
-            text_color: 0xE10522
-            text_align: CENTER
-            text_font: montserrat_36
-
-        - label:
-            id: lon_value
-            x: 0
-            y: 281
-            width: 365
-            height: 40
-            text: "-00.00000"
-            text_color: 0xE10522
-            text_align: CENTER
-            long_mode: DOT
-            text_font: atkinson_48
-
-        - label:
-            id: lbl_alt
-            x: 0
-            y: 342
-            width: 365
-            height: 30
-            text: "ALTTUDE"
-            text_color: 0xE10522
-            text_align: CENTER
-            text_font: montserrat_36
-
-        - label:
-            id: alt_value
-            x: 0
-            y: 372
-            width: 365
-            height: 40
-            text: "000.0 m"
-            text_color: 0xE10522
-            text_align: CENTER
-            long_mode: DOT
-            text_font: atkinson_48
-
-        - label:
-            id: lbl_time
-            x: 0
-            y: 17
-            width: 365
-            height: 40
-            text: "00:00:00"
-            text_color: 0xE10522
-            text_align: CENTER
-            text_font: montserrat_38
-
-        - led:
-            id: lv_led_7
-            x: 320
-            y: 23
-            width: 30
-            height: 30
-            color: 0xFF0000
-            brightness: 21%
-
-        - label:
-            id: lbl_status_canvas1
-            x: 251
-            y: 70
-            text: "3D Fix"
-            text_color: 0xE10522
-            text_font: montserrat_30
-
-        - label:
-            id: sat_status_canvas1
-            x: 0
-            y: 70
-            text: "00 / 00"
-            text_color: 0xE10522
-            text_align: AUTO
-            long_mode: DOT
-            text_font: montserrat_30
-
-        - bar:
-            id: lbl_sats_canvas1
-            x: 0
-            y: 0
-            width: 368
-            height: 8
-            value: 50
-            min_value: 0
-            max_value: 100
-            indicator:
-              bg_color: 0xE10522
-            bg_color: 0x300707
-
-    - id: canvas_2
-      bg_color: 0x000000
-      on_swipe_left:
-        - select.set:
-            id: display_page
-            option: "Speed"
-      on_swipe_right:
-        - select.set:
-            id: display_page
-            option: "Home"
-      widgets:
-        - label:
-            id: lbl_status_canvas2
-            x: 251
-            y: 19
-            text: "3D Fix"
-            text_color: 0xE10522
-            text_font: montserrat_30
-
-        - label:
-            id: sat_status_canvas2
-            x: 0
-            y: 18
-            text: "00 / 00"
-            text_color: 0xE10522
-            text_align: AUTO
-            long_mode: DOT
-            text_font: montserrat_30
-
-        - bar:
-            id: lbl_sats_canvas2
-            x: 0
-            y: 0
-            width: 368
-            height: 8
-            value: 50
-            min_value: 0
-            max_value: 100
-            indicator:
-              bg_color: 0xE10522
-            bg_color: 0x770313
-
-        - label:
-            id: lbl_hacc
-            x: 51
-            y: 320
-            text: "H.Acc"
-            text_color: 0xE10522
-            text_align: CENTER
-            text_font: montserrat_16
-
-        - label:
-            id: lbl_vacc
-            x: 250
-            y: 320
-            text: "V.Acc"
-            text_color: 0xE10522
-            text_align: CENTER
-            text_font: montserrat_16
-
-        - label:
-            id: value_hacc
-            x: 26
-            y: 360
-            text: "00.0 m"
-            text_color: 0xE10522
-            text_align: CENTER
-            text_font: montserrat_30
-
-        - label:
-            id: value_vacc
-            x: 230
-            y: 360
-            text: "0.0 m"
-            text_color: 0xE10522
-            text_align: CENTER
-            long_mode: DOT
-            text_font: montserrat_30
-
-        - label:
-            id: lbl_hdop
-            x: 0
-            y: 140
-            text: "HDOP"
-            text_color: 0xE10522
-            text_align: CENTER
-            text_font: montserrat_30
-
-        - label:
-            id: lbl_pdop
-            x: 251
-            y: 140
-            text: "PDOP"
-            text_color: 0xE10522
-            text_font: montserrat_30
-
-        - label:
-            id: lbl_vdop
-            x: 128
-            y: 140
-            text: "VDOP"
-            text_color: 0xE10522
-            text_font: montserrat_30
-
-        - label:
-            id: val_hdop
-            x: 13
-            y: 200
-            text: "0.00"
-            text_color: 0xE10522
-            text_align: CENTER
-            text_font: montserrat_30
-
-        - label:
-            id: val_pdop
-            x: 263
-            y: 200
-            text: "0.00"
-            text_color: 0xE10522
-            text_font: montserrat_30
-
-        - label:
-            id: val_vdop
-            x: 139
-            y: 200
-            text: "0.00"
-            text_color: 0xE10522
-            text_font: montserrat_30
-
-    - id: canvas_3
-      bg_color: 0x000000
-      on_swipe_left:
-        - select.set:
-            id: display_page
-            option: "Network Info"
-      on_swipe_right:
-        - select.set:
-            id: display_page
-            option: "GPS Accuracy"
-      widgets:
-        # - bar:
-        #     id: lbl_sats_canvas3
-        #     x: 0
-        #     y: 0
-        #     width: 368
-        #     height: 8
-        #     value: 50
-        #     min_value: 0
-        #     max_value: 100
-        #     indicator:
-        #       bg_color: 0xE10522
-        #     bg_color: 0x770313
-
-        - label:
-            id: val_speed
-            x: 80
-            y: 150
-            width: 200
-            height: 140
-            text: "0.0"
-            text_color: 0xE10522
-            text_align: CENTER
-            long_mode: DOT
-            text_font: roboto_60
-
-
-        # - label:
-        #     id: widget_1767665966686_mbh2qhf34
-        #     x: 41
-        #     y: 380
-        #     text: "Speed (m/h)"
-        #     text_color: 0xE10522
-        #     long_mode: DOT
-        #     text_font: montserrat_40
-
-    - id: canvas_4
-      bg_color: 0x000000
-      on_swipe_left:
-        - select.set:
-            id: display_page
-            option: "Settings"
-      on_swipe_right:
-        - select.set:
-            id: display_page
-            option: "Speed"
-      widgets:
-        - label:
-            id: lv_label_5
-            x: 67
-            y: 100
-            width: 230
-            height: 40
-            text: "GPS ESP32 IP"
-            text_color: 0xE10522
-            text_align: CENTER
-            text_font: montserrat_30
-
-        - label:
-            id: widget_1767674385203_oy223ujq2
-            x: 67
-            y: 260
-            width: 230
-            height: 40
-            text: "This Device"
-            text_color: 0xE10522
-            text_align: CENTER
-            text_font: montserrat_30
-
-        - label:
-            id: value_receiver_ip
-            x: 20
-            y: 300
-            width: 320
-            height: 60
-            text: "192.168.1.100"
-            text_color: 0xE10522
-            text_align: CENTER
-            text_font: atkinson_48
-
-        - label:
-            id: value_gps_ip
-            x: 20
-            y: 140
-            width: 320
-            height: 60
-            text: "192.168.1.100"
-            text_color: 0xE10522
-            text_align: CENTER
-            text_font: atkinson_48
-
-    - id: canvas_5
-      bg_color: 0x000000
-      on_swipe_left:
-        - select.set:
-            id: display_page
-            option: "Home"
-      on_swipe_right:
-        - select.set:
-            id: display_page
-            option: "Network Info"
-      widgets:
-        - label:
-            id: lbl_settings_title
-            x: 0
-            y: 10
-            width: 250
-            height: 40
-            text: "Settings"
-            text_color: 0xE10522
-            text_align: LEFT
-            text_font: montserrat_36
-
-        - label:
-            id: lbl_brightness_label
-            x: 0
-            y: 57
-            width: 368
-            height: 30
-            text: "Brightness"
-            text_color: 0xE10522
-            text_align: CENTER
-            text_font: montserrat_24
-
-        - label:
-            id: lbl_brightness_value
-            x: 0
-            y: 169
-            width: 368
-            height: 30
-            text: "100%"
-            text_color: 0xE10522
-            text_align: CENTER
-            text_font: montserrat_28
-
-        - label:
-            id: lbl_timeout_label
-            x: 0
-            y: 223
-            width: 368
-            height: 30
-            text: "Sleep Timeout"
-            text_color: 0xE10522
-            text_align: CENTER
-            text_font: montserrat_24
-
-        - slider:
-            id: lv_slider_timeout
-            x: 20
-            y: 255
-            width: 328
-            height: 80
-            value: 4
-            min_value: 0
-            max_value: 8
-            bg_color: 0x190101
-            border_color: 0xE10522
-            knob:
-              bg_color: 0xE10522
-              border_width: 2
-              radius: 100
-            indicator:
-              bg_color: 0x6E0211
-            animated: true
-            on_value:
-              then:
-                - lambda: |-
-                    // Map slider index to timeout values: 5, 10, 15, 30, 60, 120, 180, 240, 300
-                    const int timeout_values[] = {5, 10, 15, 30, 60, 120, 180, 240, 300};
-                    int index = (int)x;
-                    if (index < 0) index = 0;
-                    if (index > 8) index = 8;
-                    int timeout = timeout_values[index];
-                    
-                    // Update display sleep timeout
-                    id(display_sleep_timeout).publish_state(timeout);
-                    
-                    // Format timeout value for display
-                    char buf[32];
-                    if (timeout < 60) {
-                      snprintf(buf, sizeof(buf), "%ds", timeout);
-                    } else {
-                      int minutes = timeout / 60;
-                      snprintf(buf, sizeof(buf), "%dm", minutes);
-                    }
-                    lv_label_set_text(id(lbl_timeout_value), buf);
-                    
-                    ESP_LOGI("slider", "Sleep timeout slider changed to index %d (%ds)", index, timeout);
-
-        - label:
-            id: lbl_timeout_value
-            x: 0
-            y: 335
-            width: 368
-            height: 30
-            text: "30s"
-            text_color: 0xE10522
-            text_align: CENTER
-            text_font: montserrat_28
-
-        - button:
-            id: lv_button_reboot
-            x: 265
-            y: 0
-            width: 100
-            height: 50
-            bg_color: 0x190101
-            widgets:
-              - label:
-                  id: lv_label_0
-                  x: 0
-                  y: 0
-                  text: "Reboot"
-                  text_color: 0xE10522
-            on_click:
-              then:
-                - lambda: |-
-                    ESP_LOGI("reboot", "Reboot button pressed, restarting device...");
-                - button.press: device_reboot
-
-        - button:
-            id: lv_button_enablesleep
-            x: 250
-            y: 380
-            width: 100
-            height: 50
-            bg_color: 0x190101
-            checkable: true
-            state:
-              checked: true
-            widgets:
-              - label:
-                  align: CENTER
-                  text: "Sleep"
-                  text_color: 0xE10522
-            on_click:
-              then:
-                - lambda: |-
-                    // Toggle sleep timeout enabled state
-                    id(sleep_timeout_enabled) = !id(sleep_timeout_enabled);
-                    ESP_LOGI("sleep", "Sleep timeout %s", id(sleep_timeout_enabled) ? "enabled" : "disabled");
-                    
-                    // Update button state to match
-                    if (id(sleep_timeout_enabled)) {
-                      lv_obj_add_state(id(lv_button_enablesleep), LV_STATE_CHECKED);
-                    } else {
-                      lv_obj_clear_state(id(lv_button_enablesleep), LV_STATE_CHECKED);
-                    }
-
-        - button:
-            id: lv_button_turnoffscreen
-            x: 12
-            y: 380
-            width: 100
-            height: 50
-            bg_color: 0x190101
-            widgets:
-              - label:
-                  text: "Turn-Off"
-                  text_color: 0xE10522
-            on_click:
-              then:
-                - lambda: |-
-                    ESP_LOGI("display", "Turn off button pressed, turning off display backlight");
-                    id(display_sleeping) = true;
-                    id(amoled_display).set_brightness(0);
-
-        - slider:
-            id: lv_slider_10
-            x: 0
-            y: 120
-            width: 368
-            height: 80
-            value: 50
-            min_value: 0
-            max_value: 100
-            bg_color: 0x190101
-            border_color: 0xE10522
-            knob:
-              bg_color: 0xE10522
-              border_color: 0x000000
-              border_width: 2
-              radius: 100
-            indicator:
-              bg_color: 0x6E0211
-            animated: true
-            on_value:
-              then:
-                - lambda: |-
-                    // Map slider value (0-100) to brightness (10-100)
-                    float brightness = 10 + (x * 0.9);
-                    id(display_brightness).publish_state(brightness);
-                    
-                    // Update brightness value label
-                    char buf[16];
-                    snprintf(buf, sizeof(buf), "%.0f%%", brightness);
-                    lv_label_set_text(id(lbl_brightness_value), buf);
-                    
-                    ESP_LOGI("slider", "Brightness slider changed to %.0f, setting brightness to %.0f", x, brightness);
-
-
   displays:
     - amoled_display
   touchscreens:
     - amoled_touchscreen
+  pages:
+    - id: canvas_1
+      bg_color: 0x000000
+      widgets:
+        - tabview:
+            id: lv_tabview_15
+            x: 0
+            y: 0
+            width: 368
+            height: 448
+            position: BOTTOM
+            size: 10%
+            bg_color: 0x000000
+            border_color: 0xE10522
+            border_width: 1
+            tab_style:
+              bg_color: 0x000000
+              text_color: 0x6E0211
+              border_color: 0xE10522
+              border_width: 1
+              items:
+                checked:
+                  bg_color: 0x6E0211
+                  text_color: 0xE10522
+                pressed:
+                  bg_color: 0x000000
+                  text_color: 0xE10522
+            tabs:
+              - name: Home
+                scrollable: false
+                widgets:
+                  - label:
+                      id: lbl_time
+                      x: 0
+                      y: 0
+                      width: 365
+                      height: 40
+                      text: "00:00:00"
+                      text_color: 0xE10522
+                      text_align: CENTER
+                      text_font: montserrat_48
+                  - led:
+                      id: lv_led_7
+                      x: 320
+                      y: 5
+                      width: 30
+                      height: 30
+                      color: 0xFF0000
+                      brightness: 21%
+                  - label:
+                      id: lbl_status_canvas1
+                      x: 234
+                      y: 39
+                      text: "3D Fix"
+                      text_color: 0xE10522
+                      text_font: montserrat_36
+                  - label:
+                      id: sat_status_canvas1
+                      x: 0
+                      y: 39
+                      text: "00 / 00"
+                      text_color: 0xE10522
+                      text_align: AUTO
+                      long_mode: DOT
+                      text_font: montserrat_36
+                  - line:
+                      id: lv_line_home_1
+                      x: 0
+                      y: 82
+                      width: 368
+                      height: 10
+                      points:
+                        - 20, 5
+                        - 348, 5
+                      line_color: 0xE10522
+                      line_rounded: true
+                  - label:
+                      id: lbl_lat
+                      x: 0
+                      y: 99
+                      width: 365
+                      height: 40
+                      text: "LATITUDE"
+                      text_color: 0xE10522
+                      text_align: CENTER
+                      text_font: montserrat_36
+                  - label:
+                      id: lat_value
+                      x: 0
+                      y: 138
+                      width: 365
+                      height: 50
+                      text: "38.75814"
+                      text_color: 0xE10522
+                      text_align: CENTER
+                      long_mode: DOT
+                      text_font: montserrat_48
+                  - line:
+                      id: lv_line_home_2
+                      x: 0
+                      y: 187
+                      width: 368
+                      height: 10
+                      points:
+                        - 20, 5
+                        - 348, 5
+                      line_color: 0xE10522
+                      line_rounded: true
+                  - label:
+                      id: lbl_lon
+                      x: 0
+                      y: 206
+                      width: 365
+                      height: 40
+                      text: "LONGITUDE"
+                      text_color: 0xE10522
+                      text_align: CENTER
+                      text_font: montserrat_36
+                  - label:
+                      id: lon_value
+                      x: 0
+                      y: 245
+                      width: 365
+                      height: 40
+                      text: "-00.00000"
+                      text_color: 0xE10522
+                      text_align: CENTER
+                      long_mode: DOT
+                      text_font: montserrat_48
+                  - line:
+                      id: lv_line_17
+                      x: 0
+                      y: 288
+                      width: 370
+                      height: 10
+                      points:
+                        - 20, 5
+                        - 348, 5
+                      line_color: 0xE10522
+                      line_rounded: true
+                  - label:
+                      id: lbl_alt
+                      x: 0
+                      y: 304
+                      width: 365
+                      height: 30
+                      text: "ALTITUDE"
+                      text_color: 0xE10522
+                      text_align: CENTER
+                      text_font: montserrat_36
+                  - label:
+                      id: alt_value
+                      x: 0
+                      y: 333
+                      width: 365
+                      height: 40
+                      text: "000.0 m"
+                      text_color: 0xE10522
+                      text_align: CENTER
+                      long_mode: DOT
+                      text_font: montserrat_48
 
+              - name: GPS
+                scrollable: false
+                widgets:
+                  - label:
+                      id: lbl_status_canvas2
+                      x: 222
+                      y: 0
+                      text: "3D Fix"
+                      text_color: 0xE10522
+                      text_font: montserrat_40
+                  - label:
+                      id: sat_status_canvas2
+                      x: 0
+                      y: 0
+                      text: "00 / 00"
+                      text_color: 0xE10522
+                      text_align: AUTO
+                      long_mode: DOT
+                      text_font: montserrat_40
+                  - bar:
+                      id: lbl_sats_canvas2
+                      x: 0
+                      y: 65
+                      width: 370
+                      height: 30
+                      value: 50
+                      min_value: 0
+                      max_value: 100
+                      indicator:
+                        bg_color: 0xE10522
+                      bg_color: 0x770313
+                  - line:
+                      id: lv_line_16
+                      x: 0
+                      y: 116
+                      width: 368
+                      height: 10
+                      points:
+                        - 20, 5
+                        - 348, 5
+                      line_color: 0xE10522
+                      line_rounded: true
+                  - label:
+                      id: lbl_hdop
+                      x: 0
+                      y: 160
+                      text: "HDOP"
+                      text_color: 0xE10522
+                      text_align: CENTER
+                      text_font: montserrat_30
+                  - label:
+                      id: lbl_vdop
+                      x: 128
+                      y: 160
+                      text: "VDOP"
+                      text_color: 0xE10522
+                      text_font: montserrat_30
+                  - label:
+                      id: lbl_pdop
+                      x: 251
+                      y: 160
+                      text: "PDOP"
+                      text_color: 0xE10522
+                      text_font: montserrat_30
+                  - label:
+                      id: val_hdop
+                      x: 11
+                      y: 200
+                      text: "0.00"
+                      text_color: 0xE10522
+                      text_align: CENTER
+                      text_font: montserrat_36
+                  - label:
+                      id: val_vdop
+                      x: 133
+                      y: 200
+                      text: "0.00"
+                      text_color: 0xE10522
+                      text_font: montserrat_36
+                  - label:
+                      id: val_pdop
+                      x: 260
+                      y: 200
+                      text: "0.00"
+                      text_color: 0xE10522
+                      text_font: montserrat_36
+                  - line:
+                      id: lv_line_gps_2
+                      x: 0
+                      y: 263
+                      width: 368
+                      height: 10
+                      points:
+                        - 20, 5
+                        - 348, 5
+                      line_color: 0xE10522
+                      line_rounded: true
+                  - label:
+                      id: lbl_hacc
+                      x: 51
+                      y: 295
+                      text: "H.Acc"
+                      text_color: 0xE10522
+                      text_align: CENTER
+                      text_font: montserrat_16
+                  - label:
+                      id: lbl_vacc
+                      x: 250
+                      y: 295
+                      text: "V.Acc"
+                      text_color: 0xE10522
+                      text_align: CENTER
+                      text_font: montserrat_16
+                  - label:
+                      id: value_hacc
+                      x: 14
+                      y: 314
+                      text: "00.0 m"
+                      text_color: 0xE10522
+                      text_align: CENTER
+                      text_font: montserrat_36
+                  - label:
+                      id: value_vacc
+                      x: 220
+                      y: 314
+                      text: "0.0 m"
+                      text_color: 0xE10522
+                      text_align: CENTER
+                      long_mode: DOT
+                      text_font: montserrat_36
 
-# =========================================================================
-# FONTS
-# =========================================================================
+              - name: Speed
+                scrollable: false
+                widgets:
+                  - label:
+                      id: val_speed
+                      x: 0
+                      y: 133
+                      width: 368
+                      height: 140
+                      text: "00.0"
+                      text_color: 0xE10522
+                      text_align: CENTER
+                      long_mode: DOT
+                      text_font: montserrat_48
+
+              - name: Network
+                scrollable: false
+                widgets:
+                  - line:
+                      id: lv_line_18
+                      x: 0
+                      y: 0
+                      width: 368
+                      height: 10
+                      points:
+                        - 20, 5
+                        - 348, 5
+                      line_color: 0xE10522
+                      line_rounded: true
+                  - label:
+                      id: lv_label_5
+                      x: 67
+                      y: 20
+                      width: 230
+                      height: 40
+                      text: "GPS ESP32 IP"
+                      text_color: 0xE10522
+                      text_align: CENTER
+                      text_font: montserrat_30
+                  - label:
+                      id: value_gps_ip
+                      x: 0
+                      y: 59
+                      width: 368
+                      height: 60
+                      text: "192.168.1.100"
+                      text_color: 0xE10522
+                      text_align: CENTER
+                      text_font: montserrat_48
+                  - label:
+                      id: lbl_this_device
+                      x: 67
+                      y: 129
+                      width: 230
+                      height: 40
+                      text: "This Device"
+                      text_color: 0xE10522
+                      text_align: CENTER
+                      text_font: montserrat_30
+                  - label:
+                      id: value_receiver_ip
+                      x: 0
+                      y: 168
+                      width: 368
+                      height: 60
+                      text: "192.168.1.100"
+                      text_color: 0xE10522
+                      text_align: CENTER
+                      text_font: montserrat_48
+
+              - name: Settings
+                widgets:
+                  - label:
+                      id: lbl_brightness_label
+                      x: 0
+                      y: 0
+                      width: 185
+                      height: 25
+                      text: "Brightness"
+                      text_color: 0xE10522
+                      text_align: CENTER
+                      text_font: montserrat_20
+                  - label:
+                      id: lbl_brightness_value
+                      x: 185
+                      y: 0
+                      width: 180
+                      height: 30
+                      text: "100%"
+                      text_color: 0xE10522
+                      text_align: CENTER
+                      text_font: montserrat_30
+                  - slider:
+                      id: lv_slider_10
+                      x: 0
+                      y: 33
+                      width: 368
+                      height: 60
+                      value: 50
+                      min_value: 0
+                      max_value: 100
+                      bg_color: 0x190101
+                      border_color: 0xE10522
+                      knob:
+                        bg_color: 0xE10522
+                        border_width: 2
+                        radius: 100
+                      indicator:
+                        bg_color: 0x6E0211
+                      animated: true
+                      on_value:
+                        then:
+                          - lambda: |-
+                              float brightness = 10 + (x * 0.9);
+                              id(display_brightness).publish_state(brightness);
+                              char buf[16];
+                              snprintf(buf, sizeof(buf), "%.0f%%", brightness);
+                              lv_label_set_text(id(lbl_brightness_value), buf);
+                              ESP_LOGI("slider", "Brightness slider changed to %.0f, setting brightness to %.0f", x, brightness);
+                  - label:
+                      id: lbl_dim_timeout_label
+                      x: 0
+                      y: 118
+                      width: 185
+                      height: 25
+                      text: "Dim Timeout"
+                      text_color: 0xE10522
+                      text_align: CENTER
+                      text_font: montserrat_20
+                  - label:
+                      id: lbl_dim_timeout_value
+                      x: 185
+                      y: 114
+                      width: 180
+                      height: 30
+                      text: "30s"
+                      text_color: 0xE10522
+                      text_align: CENTER
+                      text_font: montserrat_30
+                  - slider:
+                      id: lv_slider_dim_timeout
+                      x: 0
+                      y: 148
+                      width: 368
+                      height: 60
+                      value: 3
+                      min_value: 0
+                      max_value: 8
+                      bg_color: 0x190101
+                      border_color: 0xE10522
+                      knob:
+                        bg_color: 0xE10522
+                        border_width: 2
+                        radius: 100
+                      indicator:
+                        bg_color: 0x6E0211
+                      animated: true
+                      on_value:
+                        then:
+                          - lambda: |-
+                              const int timeout_values[] = {5, 10, 15, 30, 60, 120, 180, 240, 300};
+                              int index = (int)x;
+                              if (index < 0) index = 0;
+                              if (index > 8) index = 8;
+                              int timeout = timeout_values[index];
+                              id(display_dim_timeout).publish_state(timeout);
+                              char buf[32];
+                              if (timeout < 60) {
+                                snprintf(buf, sizeof(buf), "%ds", timeout);
+                              } else {
+                                int minutes = timeout / 60;
+                                snprintf(buf, sizeof(buf), "%dm", minutes);
+                              }
+                              lv_label_set_text(id(lbl_dim_timeout_value), buf);
+                              ESP_LOGI("slider", "Dim timeout slider changed to index %d (%ds)", index, timeout);
+                  - label:
+                      id: lbl_timeout_label
+                      x: 0
+                      y: 229
+                      width: 185
+                      height: 25
+                      text: "Sleep Timeout"
+                      text_color: 0xE10522
+                      text_align: CENTER
+                      text_font: montserrat_20
+                  - label:
+                      id: lbl_timeout_value
+                      x: 185
+                      y: 224
+                      width: 180
+                      height: 30
+                      text: "1m"
+                      text_color: 0xE10522
+                      text_align: CENTER
+                      text_font: montserrat_30
+                  - slider:
+                      id: lv_slider_timeout
+                      x: 0
+                      y: 256
+                      width: 368
+                      height: 60
+                      value: 4
+                      min_value: 0
+                      max_value: 8
+                      bg_color: 0x190101
+                      border_color: 0xE10522
+                      knob:
+                        bg_color: 0xE10522
+                        border_width: 2
+                        radius: 100
+                      indicator:
+                        bg_color: 0x6E0211
+                      animated: true
+                      on_value:
+                        then:
+                          - lambda: |-
+                              const int timeout_values[] = {5, 10, 15, 30, 60, 120, 180, 240, 300};
+                              int index = (int)x;
+                              if (index < 0) index = 0;
+                              if (index > 8) index = 8;
+                              int timeout = timeout_values[index];
+                              id(display_sleep_timeout).publish_state(timeout);
+                              char buf[32];
+                              if (timeout < 60) {
+                                snprintf(buf, sizeof(buf), "%ds", timeout);
+                              } else {
+                                int minutes = timeout / 60;
+                                snprintf(buf, sizeof(buf), "%dm", minutes);
+                              }
+                              lv_label_set_text(id(lbl_timeout_value), buf);
+                              ESP_LOGI("slider", "Sleep timeout slider changed to index %d (%ds)", index, timeout);
+                  - button:
+                      id: lv_button_turnoffscreen
+                      x: 3
+                      y: 350
+                      width: 130
+                      height: 60
+                      bg_color: 0x190101
+                      border_color: 0xE10522
+                      border_width: 1
+                      widgets:
+                        - label:
+                            id: lv_label_0
+                            x: 0
+                            y: 0
+                            text: "Turn-Off"
+                            text_color: 0xE10522
+                  - label:
+                      id: lbl_enable_dim
+                      x: 133
+                      y: 350
+                      width: 120
+                      height: 20
+                      text: "Dim"
+                      text_color: 0xE10522
+                      text_align: CENTER
+                      text_font: montserrat_16
+                  - switch:
+                      id: lv_switch_enabledim
+                      x: 145
+                      y: 374
+                      width: 100
+                      height: 40
+                      bg_color: 0x190101
+                      border_width: 1
+                      border_color: 0xE10522
+                      indicator:
+                        bg_color: 0xE10522
+                      knob:
+                        bg_color: 0xE10522
+                        border_color: 0x9CA3AF
+                        border_width: 1
+                        radius: 9999
+                      on_click:
+                        then:
+                          - lambda: |-
+                              id(dim_timeout_enabled) = !id(dim_timeout_enabled);
+                              ESP_LOGI("dim", "Dim timeout %s", id(dim_timeout_enabled) ? "enabled" : "disabled");
+                              if (id(dim_timeout_enabled)) {
+                                lv_obj_add_state(id(lv_switch_enabledim), LV_STATE_CHECKED);
+                              } else {
+                                lv_obj_clear_state(id(lv_switch_enabledim), LV_STATE_CHECKED);
+                              }
+                  - label:
+                      id: lbl_enable_sleep
+                      x: 245
+                      y: 350
+                      width: 120
+                      height: 20
+                      text: "Sleep"
+                      text_color: 0xE10522
+                      text_align: CENTER
+                      text_font: montserrat_16
+                  - switch:
+                      id: lv_switch_enablesleep
+                      x: 258
+                      y: 374
+                      width: 100
+                      height: 40
+                      bg_color: 0x190101
+                      border_width: 1
+                      border_color: 0xE10522
+                      indicator:
+                        bg_color: 0xE10522
+                      knob:
+                        bg_color: 0xE10522
+                        border_color: 0x9CA3AF
+                        border_width: 1
+                        radius: 9999
+                      on_click:
+                        then:
+                          - lambda: |-
+                              id(sleep_timeout_enabled) = !id(sleep_timeout_enabled);
+                              ESP_LOGI("sleep", "Sleep timeout %s", id(sleep_timeout_enabled) ? "enabled" : "disabled");
+                              if (id(sleep_timeout_enabled)) {
+                                lv_obj_add_state(id(lv_switch_enablesleep), LV_STATE_CHECKED);
+                              } else {
+                                lv_obj_clear_state(id(lv_switch_enablesleep), LV_STATE_CHECKED);
+                              }
+              - name: Reboot
+                scrollable: false
+                widgets:
+                  - button:
+                      id: lv_button_reboot
+                      x: 0
+                      y: 150
+                      width: 368
+                      height: 80
+                      bg_color: 0x190101
+                      border_color: 0xE10522
+                      border_width: 1
+                      widgets:
+                        - label:
+                            id: lv_label_0_1
+                            align: CENTER
+                            text: "Reboot"
+                            text_color: 0xE10522
+                            text_font: montserrat_30
+                      on_click:
+                        then:
+                          - lambda: |-
+                              ESP_LOGI("reboot", "Reboot button pressed, restarting device...");
+                          - button.press: device_reboot
+
 font:
   - file: "gfonts://Roboto"
     id: font_16
@@ -1480,6 +1495,12 @@ font:
   - file: "gfonts://Montserrat"
     id: montserrat_40
     size: 40
+  - file: "gfonts://Montserrat"
+    id: montserrat_46
+    size: 46
+  - file: "gfonts://Montserrat"
+    id: montserrat_48
+    size: 48
   - file: "https://github.com/googlefonts/atkinson-hyperlegible/raw/main/fonts/ttf/AtkinsonHyperlegible-Regular.ttf"
     id: atkinson_48
     size: 48
