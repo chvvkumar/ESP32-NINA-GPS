@@ -1071,6 +1071,8 @@ void setupWeb() {
     if (request->hasParam("mode")) {
       int mode = request->getParam("mode")->value().toInt();
       gpsData.ledMode = static_cast<LedMode>(mode);
+      String modeStr[] = {"Off", "On", "Blink on Read", "Blink on Fix", "Blink on Move"};
+      webSerialLog("LED mode changed to: " + modeStr[mode]);
       if (gpsData.ledMode == LED_OFF) {
         digitalWrite(LED_PIN, LOW);
       } else if (gpsData.ledMode == LED_ON) {
@@ -1086,19 +1088,24 @@ void setupWeb() {
     if (request->hasParam("interval")) {
       unsigned long interval = request->getParam("interval")->value().toInt();
       gpsData.gpsInterval = interval;
+      webSerialLog("GPS update interval changed to " + String(interval) + "ms");
     }
     request->send(200, "text/plain", "OK");
   });
 
   webServer.on("/api/set_demo_mode", HTTP_GET, [](AsyncWebServerRequest *request){
     if (request->hasParam("enabled")) {
-      gpsData.demoMode = request->getParam("enabled")->value().toInt() == 1;
+      bool newMode = request->getParam("enabled")->value().toInt() == 1;
+      gpsData.demoMode = newMode;
+      webSerialLog(newMode ? "Demo mode ENABLED" : "Demo mode DISABLED");
     }
     request->send(200, "text/plain", "OK");
   });
 
   webServer.on("/api/scan", HTTP_GET, [](AsyncWebServerRequest *request){
+    webSerialLog("WiFi scan initiated");
     int n = WiFi.scanNetworks();
+    webSerialLog("WiFi scan complete - Found " + String(n) + " network(s)");
     JsonDocument doc;
     JsonArray array = doc.to<JsonArray>();
     for (int i = 0; i < n; ++i) {
@@ -1114,17 +1121,20 @@ void setupWeb() {
   });
 
   webServer.on("/api/reboot", HTTP_GET, [](AsyncWebServerRequest *request){
+    webSerialLog("System reboot requested");
     request->send(200, "text/plain", "Rebooting...");
     delay(1000);
     ESP.restart();
   });
 
   webServer.on("/api/clear_ram", HTTP_GET, [](AsyncWebServerRequest *request){
+    webSerialLog("Clearing RAM statistics");
     storage.clearSession();
     request->send(200, "text/plain", "OK");
   });
 
   webServer.on("/api/clear_storage", HTTP_GET, [](AsyncWebServerRequest *request){
+    webSerialLog("Clearing flash storage statistics");
     storage.clearStorage();
     request->send(200, "text/plain", "OK");
   });
@@ -1135,11 +1145,13 @@ void setupWeb() {
       if (request->hasParam("pass")) pass = request->getParam("pass")->value();
       
       if (ssid.length() > 0) {
+          webSerialLog("Saving WiFi credentials for: " + ssid);
           Preferences prefs;
           prefs.begin("wifi_config", false);
           prefs.putString("ssid", ssid);
           prefs.putString("pass", pass);
           prefs.end();
+          webSerialLog("WiFi credentials saved - Rebooting to connect");
           request->send(200, "text/plain", "Saved. Rebooting...");
           delay(1000);
           ESP.restart();
@@ -1151,6 +1163,7 @@ void setupWeb() {
   // Set high-priority OTA callbacks
   ElegantOTA.onStart([]() {
     Serial.println("OTA Update Started - Suspending all tasks");
+    webSerialLog("OTA firmware update started - All tasks suspended");
     otaInProgress = true;
   });
   
@@ -1158,8 +1171,10 @@ void setupWeb() {
     otaInProgress = false;
     if (success) {
       Serial.println("OTA Update Successful - Rebooting...");
+      webSerialLog("OTA update completed successfully - Rebooting");
     } else {
       Serial.println("OTA Update Failed - Resuming normal operation");
+      webSerialLog("OTA update failed - Resuming normal operation");
     }
   });
   
@@ -1169,6 +1184,7 @@ void setupWeb() {
   webSerialBegin();
   
   webServer.begin();
+  webSerialLog("Web server started on port " + String(WEB_PORT));
 }
 
 void webLoop() {

@@ -14,6 +14,7 @@ void turnLedOff() {
 void initLed() {
     pinMode(LED_PIN, OUTPUT);
     digitalWrite(LED_PIN, LOW); // LOW = OFF on SparkFun Qwiic Pocket C6
+    Serial.println("LED initialized on pin " + String(LED_PIN));
 }
 
 void triggerLed() {

@@ -36,12 +36,15 @@ void setup() {
 
   // Hardware Init
   initLed();
+  webSerialLog("System startup initiated");
   gpsData.startTime = millis();
   setupGPS();
 
   // Network Init
+  webSerialLog("Initializing WiFi in AP+STA mode");
   WiFi.mode(WIFI_AP_STA);
   WiFi.softAP(AP_SSID, AP_PASS);
+  webSerialLog("WiFi AP started: " + String(AP_SSID));
 
   Preferences prefs;
   prefs.begin("wifi_config", true); // Read-only
@@ -51,17 +54,24 @@ void setup() {
 
   if (savedSSID.length() > 0) {
     Serial.print("Connecting to Saved WiFi: "); Serial.println(savedSSID);
+    webSerialLog("Connecting to saved WiFi: " + savedSSID);
     WiFi.begin(savedSSID.c_str(), savedPass.c_str());
   } else {
     Serial.print("Connecting to Config WiFi: "); Serial.println(WIFI_SSID);
+    webSerialLog("Connecting to config WiFi: " + String(WIFI_SSID));
     WiFi.begin(WIFI_SSID, WIFI_PASS);
   }
   
   Serial.print("AP IP: "); Serial.println(WiFi.softAPIP());
+  webSerialLog("AP IP address: " + WiFi.softAPIP().toString());
   
+  webSerialLog("Starting web server...");
   setupWeb();
+  webSerialLog("Starting TCP server on port " + String(TCP_PORT));
   setupTCP();
+  webSerialLog("Initializing ESP-NOW...");
   setupEspNow();
+  webSerialLog("System initialization complete");
 }
 
 void loop() {
@@ -108,6 +118,8 @@ void loop() {
       Serial.print("Station IP: ");
       Serial.println(WiFi.localIP());
       Serial.println("WiFi connected - disabling AP mode");
+      webSerialLog("WiFi connected - Station IP: " + WiFi.localIP().toString());
+      webSerialLog("Disabling AP mode to conserve power");
       WiFi.softAPdisconnect(true);
       connectedPrinted = true;
       apDisabled = true;
@@ -117,6 +129,7 @@ void loop() {
     if (millis() - lastReconnectAttempt >= 30000) {
       lastReconnectAttempt = millis();
       Serial.println("WiFi disconnected - attempting reconnect...");
+      webSerialLog("WiFi connection lost - attempting to reconnect");
       WiFi.disconnect();
       WiFi.reconnect();
     }
