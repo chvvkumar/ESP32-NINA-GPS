@@ -3,5 +3,6 @@
 
 void setupGPS();
 void pollGPS();
+void syncSystemTimeFromGPS();
 
 #endif

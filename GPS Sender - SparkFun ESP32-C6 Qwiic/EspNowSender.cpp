@@ -60,6 +60,10 @@ void OnDataReceived(const esp_now_recv_info_t *recv_info, const uint8_t *data, i
   memcpy(&pong, data, sizeof(PongPacket));
   
   // Debug: Log the MAC that sent this pong
+  char macStr[18];
+  snprintf(macStr, sizeof(macStr), "%02X:%02X:%02X:%02X:%02X:%02X",
+           recv_info->src_addr[0], recv_info->src_addr[1], recv_info->src_addr[2],
+           recv_info->src_addr[3], recv_info->src_addr[4], recv_info->src_addr[5]);
   Serial.printf("Pong from MAC %02X:%02X:%02X:%02X:%02X:%02X (ping #%u)\n",
                 recv_info->src_addr[0], recv_info->src_addr[1], recv_info->src_addr[2],
                 recv_info->src_addr[3], recv_info->src_addr[4], recv_info->src_addr[5],
@@ -73,15 +77,20 @@ void OnDataReceived(const esp_now_recv_info_t *recv_info, const uint8_t *data, i
       gpsData.espNowClients[i].isActive = true;
       
       Serial.printf("ESP-NOW: Pong received from client %d (ping #%u)\n", i + 1, pong.pingCounter);
-      // webSerialLog("ESP-NOW: Pong received from client " + String(i + 1) + " (ping #" + String(pong.pingCounter) + ")");
+      webSerialLog("ESP-NOW: Pong received from client " + String(i + 1) + " (ping #" + String(pong.pingCounter) + ")");
       return;
     }
   }
   
   // If we get here, MAC didn't match any known client
+  char unknownMac[18];
+  snprintf(unknownMac, sizeof(unknownMac), "%02X:%02X:%02X:%02X:%02X:%02X",
+           recv_info->src_addr[0], recv_info->src_addr[1], recv_info->src_addr[2],
+           recv_info->src_addr[3], recv_info->src_addr[4], recv_info->src_addr[5]);
   Serial.printf("WARNING: Unrecognized pong from %02X:%02X:%02X:%02X:%02X:%02X\n",
                 recv_info->src_addr[0], recv_info->src_addr[1], recv_info->src_addr[2],
                 recv_info->src_addr[3], recv_info->src_addr[4], recv_info->src_addr[5]);
+  webSerialLog("WARNING: Unrecognized pong from " + String(unknownMac));
 }
 
 // Callback when data is sent

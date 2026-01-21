@@ -1,11 +1,50 @@
 #include <Arduino.h>
 #include <Wire.h>
+#include <sys/time.h>
 #include "GpsLogic.h"
 #include "Config.h"
 #include "Context.h"
 #include "LedControl.h"
 #include "Storage.h"
 #include "WebServer.h"
+
+void syncSystemTimeFromGPS() {
+  // Validate GPS data is reasonable before syncing
+  if (gpsData.year < 2000 || gpsData.year > 2100) {
+    webSerialLog("WARNING: GPS year invalid (" + String(gpsData.year) + ") - Time sync skipped");
+    return;
+  }
+  
+  // Get GPS time components
+  struct tm timeinfo;
+  timeinfo.tm_year = gpsData.year - 1900;  // tm_year is years since 1900
+  timeinfo.tm_mon = gpsData.month - 1;     // tm_mon is 0-11
+  timeinfo.tm_mday = gpsData.day;
+  timeinfo.tm_hour = gpsData.hour;
+  timeinfo.tm_min = gpsData.minute;
+  timeinfo.tm_sec = gpsData.second;
+  timeinfo.tm_isdst = -1;  // Let mktime determine DST
+  
+  // Convert to Unix timestamp
+  time_t timestamp = mktime(&timeinfo);
+  
+  if (timestamp <= 0) {
+    webSerialLog("ERROR: mktime failed for GPS time");
+    return;
+  }
+  
+  // Set system time
+  struct timeval tv;
+  tv.tv_sec = timestamp;
+  tv.tv_usec = 0;
+  
+  if (settimeofday(&tv, NULL) == 0) {
+    webSerialLog("System time synced from GPS UTC: " + gpsData.dateStr + " " + gpsData.timeStr + " (Local: " + gpsData.localTimeStr + ")");
+    gpsData.timeSynced = true;
+  } else {
+    webSerialLog("ERROR: settimeofday failed");
+  }
+}
 
 void setupGPS() {
   webSerialLog("Initializing I2C for GPS module");
@@ -244,5 +283,26 @@ void pollGPS() {
     char dateBuf[12];
     snprintf(dateBuf, sizeof(dateBuf), "%04d-%02d-%02d", gpsData.year, gpsData.month, gpsData.day);
     gpsData.dateStr = String(dateBuf);
+  }
+  
+  // Sync system time from GPS only once at first fix
+  if (gpsData.hadFirstFix && !gpsData.timeSynced) {
+    if (myGNSS.getTimeValid() && myGNSS.getDateValid()) {
+      syncSystemTimeFromGPS();
+    } else {
+      webSerialLog("Debug: Fix acquired but time/date not valid yet. Time: " + String(myGNSS.getTimeValid()) + " Date: " + String(myGNSS.getDateValid()));
+    }
+  }
+  
+  // Periodic status logging to web console (every 60 seconds if fix acquired)
+  static unsigned long lastWebLog = 0;
+  if (gpsData.hasFix && (millis() - lastWebLog >= 60000)) {
+    lastWebLog = millis();
+    char statusLog[256];
+    snprintf(statusLog, sizeof(statusLog), 
+             "GPS: %.6f, %.6f | Alt: %.1fm | Sats: %d/%d | Speed: %.1f m/s | HDOP: %.1f",
+             gpsData.lat, gpsData.lon, gpsData.altMSL, gpsData.satellites, 
+             gpsData.satellitesVisible, gpsData.speed, gpsData.hdop);
+    webSerialLog(statusLog);
   }
 }
