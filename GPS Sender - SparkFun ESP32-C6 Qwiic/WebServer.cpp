@@ -206,6 +206,10 @@ const char index_html[] PROGMEM = R"rawliteral(
           </div>
         </div>
         <div class="coord-grid">
+          <div class="coord-item" style="text-align: center; padding-bottom: 0.5rem; border-bottom: 1px solid rgba(255,255,255,0.05); margin-bottom: 0.5rem;">
+            <span class="coord-label" style="font-size: 0.7rem;">NTP TIMESTAMP</span>
+            <div class="stat-val mono" style="font-size: 1rem; color: var(--accent);" id="ntpTime">0.000000000</div>
+          </div>
           <div class="coord-item">
             <span class="coord-label">LATITUDE</span>
             <div class="big-value mono" id="lat">0.0000000</div>
@@ -433,6 +437,11 @@ const char index_html[] PROGMEM = R"rawliteral(
     
     function updateData() {
       fetch('/api/status').then(r => r.json()).then(d => {
+        // Update NTP Time
+        if(d.ntpTime) {
+          document.getElementById('ntpTime').textContent = d.ntpTime;
+        }
+        
         const ids = ['lat','lon','alt','speed','hAcc','vAcc','pdop','hdop','vdop','time','localTime','fixStatus'];
         ids.forEach(id => {
           const el = document.getElementById(id);
@@ -1088,6 +1097,26 @@ void setupWeb() {
     doc["vdop"] = gpsData.vdop;
     doc["time"] = gpsData.timeStr;
     doc["localTime"] = gpsData.localTimeStr;
+    
+    // Calculate NTP timestamp (seconds.fractional since 1900-01-01)
+    if (gpsData.year >= 2000) {
+      struct tm tm;
+      tm.tm_year = gpsData.year - 1900;
+      tm.tm_mon  = gpsData.month - 1;
+      tm.tm_mday = gpsData.day;
+      tm.tm_hour = gpsData.hour;
+      tm.tm_min  = gpsData.minute;
+      tm.tm_sec  = gpsData.second;
+      time_t unixTime = mktime(&tm);
+      unsigned long ntpSeconds = unixTime + 2208988800UL; // Convert to NTP epoch (1900)
+      double ntpFractional = gpsData.millisecond / 1000.0;
+      char ntpStr[24];
+      sprintf(ntpStr, "%lu.%03d", ntpSeconds, gpsData.millisecond);
+      doc["ntpTime"] = ntpStr;
+    } else {
+      doc["ntpTime"] = "0.000";
+    }
+    
     doc["lat"] = gpsData.lat;
     doc["lon"] = gpsData.lon;
     doc["alt"] = gpsData.alt;

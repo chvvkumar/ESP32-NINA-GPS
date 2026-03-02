@@ -1,0 +1,19 @@
+# Name,   Type, SubType,  Offset,    Size,    Flags
+# ─────────────────────────────────────────────────────────────────────
+# 16 MB Flash Layout for ESP32-S3 NINA GPS Receiver
+# Total usable: 0x1000000 (16 MB)
+#
+# 0x000000 - 0x008FFF : bootloader (36 KB, managed by ESP-IDF)
+# 0x009000 - 0x00EFFF : NVS (24 KB)
+# 0x00F000 - 0x010FFF : otadata (8 KB)
+# 0x011000 - 0x011FFF : phy_init (4 KB)
+# 0x020000 - 0x51FFFF : ota_0 (5 MB)
+# 0x520000 - 0xA1FFFF : ota_1 (5 MB)
+# 0xA20000 - 0xFFFFFF : storage (5.875 MB)
+# ─────────────────────────────────────────────────────────────────────
+nvs,      data, nvs,      0x9000,    0x6000,
+otadata,  data, ota,      0xf000,    0x2000,
+phy_init, data, phy,      0x11000,   0x1000,
+ota_0,    app,  ota_0,    0x20000,   0x500000,
+ota_1,    app,  ota_1,    0x520000,  0x500000,
+storage,  data, spiffs,   0xA20000,  0x5E0000,

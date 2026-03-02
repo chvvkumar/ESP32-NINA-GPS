@@ -6,3 +6,9 @@ personal
 /.gemini
 /.github
 /.clinerules
+.claude/
+.vscode/
+receiver-ESP32-S3-Touch-AMOLED-1.8 esp-idf/05_LVGL_WITH_RAM/
+receiver-ESP32-S3-Touch-AMOLED-1.8 esp-idf/docs/
+receiver-ESP32-S3-Touch-AMOLED-1.8 esp-idf/build
+receiver-ESP32-S3-Touch-AMOLED-1.8 esp-idf/managed_components/

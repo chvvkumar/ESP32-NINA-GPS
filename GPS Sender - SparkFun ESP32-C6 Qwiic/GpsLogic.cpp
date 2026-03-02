@@ -125,6 +125,7 @@ void generateDemoData() {
   gpsData.hour = (seconds / 3600) % 24;
   gpsData.minute = (seconds % 3600) / 60;
   gpsData.second = seconds % 60;
+  gpsData.millisecond = now % 1000;  // Capture milliseconds for NTP
   
   char timeBuf[12];
   snprintf(timeBuf, sizeof(timeBuf), "%02d:%02d:%02d", gpsData.hour, gpsData.minute, gpsData.second);
@@ -253,6 +254,7 @@ void pollGPS() {
     gpsData.hour = myGNSS.getHour();
     gpsData.minute = myGNSS.getMinute();
     gpsData.second = myGNSS.getSecond();
+    gpsData.millisecond = myGNSS.getMillisecond();  // Capture milliseconds for NTP
     char timeBuf[12];
     snprintf(timeBuf, sizeof(timeBuf), "%02d:%02d:%02d", gpsData.hour, gpsData.minute, gpsData.second);
     gpsData.timeStr = String(timeBuf);

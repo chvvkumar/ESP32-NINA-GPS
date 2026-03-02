@@ -23,6 +23,7 @@
 #include "TcpServer.h"
 #include "Storage.h"
 #include "EspNowSender.h"
+#include "NtpServer.h"
 
 // Define Global Instances
 SFE_UBLOX_GNSS myGNSS;
@@ -71,6 +72,8 @@ void setup() {
   setupTCP();
   webSerialLog("Initializing ESP-NOW...");
   setupEspNow();
+  webSerialLog("Initializing NTP Server...");
+  setupNtp();
   webSerialLog("System initialization complete");
 }
 
@@ -85,6 +88,9 @@ void loop() {
     delay(10); // Small delay to let OTA process
     return;
   }
+  
+  // Handle NTP requests (non-blocking)
+  loopNtp();
   
   bool shouldBroadcast = false;
 

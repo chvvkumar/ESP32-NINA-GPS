@@ -45,6 +45,7 @@ struct GPSData {
   String dateStr = "1970-01-01";
   String localTimeStr = "--:--:--";
   uint8_t hour, minute, second;
+  uint16_t millisecond = 0;  // Millisecond precision for NTP server
   uint16_t year;
   uint8_t month, day;
   int timezoneOffsetMinutes = 0;

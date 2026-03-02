@@ -1,0 +1,101 @@
+dependencies:
+  esp_lcd_sh8601:
+    dependencies:
+    - name: espressif/cmake_utilities
+      version: 0.*
+    - name: idf
+      version: '>5.0.4,!=5.1.1'
+    source:
+      path: C:\Users\Kumar\git\ESP32-NINA-GPS\receiver-ESP32-S3-Touch-AMOLED-1.8 esp-idf\05_LVGL_WITH_RAM\components\esp_lcd_sh8601
+      type: local
+    version: 1.0.0
+  esp_lcd_touch_ft5x06:
+    dependencies:
+    - name: espressif/esp_lcd_touch
+      public: true
+      version: ^1.0.4
+    - name: idf
+      version: '>=4.4.2'
+    source:
+      path: C:\Users\Kumar\git\ESP32-NINA-GPS\receiver-ESP32-S3-Touch-AMOLED-1.8 esp-idf\05_LVGL_WITH_RAM\components\espressif__esp_lcd_touch_ft5x06
+      type: local
+    version: 1.0.6
+  espressif/cmake_utilities:
+    component_hash: 351350613ceafba240b761b4ea991e0f231ac7a9f59a9ee901f751bddc0bb18f
+    dependencies:
+    - name: idf
+      require: private
+      version: '>=4.1'
+    source:
+      registry_url: https://components.espressif.com/
+      type: service
+    version: 0.5.3
+  espressif/esp_io_expander:
+    component_hash: 034903704f65e3994d7cce9d080b19d89525cf6d416574b932826adf680f3942
+    dependencies:
+    - name: idf
+      require: private
+      version: '>=4.4.2'
+    source:
+      registry_url: https://components.espressif.com
+      type: service
+    version: 1.2.0
+  espressif/esp_io_expander_tca9554:
+    component_hash: e9e49ddb1038c2b54b13c51b5e3e6dbdd10a878959c8ab0e0a7c8206316add61
+    dependencies:
+    - name: idf
+      require: private
+      version: '>=4.4.2'
+    - name: espressif/esp_io_expander
+      registry_url: https://components.espressif.com
+      require: private
+      version: ^1.0.1
+    source:
+      registry_url: https://components.espressif.com/
+      type: service
+    version: 1.0.1
+  espressif/esp_lcd_touch:
+    component_hash: 3f85a7d95af876f1a6ecca8eb90a81614890d0f03a038390804e5a77e2caf862
+    dependencies:
+    - name: idf
+      require: private
+      version: '>=4.4.2'
+    source:
+      registry_url: https://components.espressif.com/
+      type: service
+    version: 1.2.1
+  espressif/esp_lvgl_port:
+    component_hash: b6360960f47b6776462e7092861b3ea66477ffb762a01baa0aecbb3d74cd50f4
+    dependencies:
+    - name: idf
+      require: private
+      version: '>=5.1'
+    - name: lvgl/lvgl
+      registry_url: https://components.espressif.com
+      require: public
+      version: '>=8,<10'
+    source:
+      registry_url: https://components.espressif.com/
+      type: service
+    version: 2.7.2
+  idf:
+    source:
+      type: idf
+    version: 5.5.2
+  lvgl/lvgl:
+    component_hash: 096c69af22eaf8a2b721e3913da91918c5e6bf1a762a113ec01f401aa61337a0
+    dependencies: []
+    source:
+      registry_url: https://components.espressif.com/
+      type: service
+    version: 9.2.2
+direct_dependencies:
+- esp_lcd_sh8601
+- esp_lcd_touch_ft5x06
+- espressif/esp_io_expander_tca9554
+- espressif/esp_lvgl_port
+- idf
+- lvgl/lvgl
+manifest_hash: 236b8da30dd1af3b1c526518c6801f443b4165475227fa2c062a1ba1d94b860a
+target: esp32s3
+version: 2.0.0
