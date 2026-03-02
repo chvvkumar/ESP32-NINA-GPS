@@ -1,44 +1,44 @@
-# ═══════════════════════════════════════════════════════════════════════
+# -----------------------------------------------------------------------
 # ESP32-S3 NINA GPS Receiver - sdkconfig.defaults
 # Target: ESP32-S3 / 16 MB Flash / 8 MB Octal PSRAM / SH8601 AMOLED
 # LVGL 9.2+ / WiFi + ESP-NOW
-# ═══════════════════════════════════════════════════════════════════════
+# -----------------------------------------------------------------------
 
-# ── Target ───────────────────────────────────────────────────────────
+# -- Target --
 CONFIG_IDF_TARGET="esp32s3"
 
-# ── Flash ────────────────────────────────────────────────────────────
+# -- Flash --
 CONFIG_ESPTOOLPY_FLASHMODE_QIO=y
 CONFIG_ESPTOOLPY_FLASHSIZE_16MB=y
 CONFIG_ESPTOOLPY_FLASHSIZE="16MB"
 CONFIG_PARTITION_TABLE_CUSTOM=y
 
-# ── Bootloader ───────────────────────────────────────────────────────
+# -- Bootloader --
 CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=y
 
-# ── Compiler ─────────────────────────────────────────────────────────
+# -- Compiler --
 CONFIG_COMPILER_OPTIMIZATION_PERF=y
 
-# ── CPU ──────────────────────────────────────────────────────────────
+# -- CPU --
 CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ_240=y
 
-# ── PSRAM (8 MB Octal) ──────────────────────────────────────────────
+# -- PSRAM (8 MB Octal) --
 CONFIG_SPIRAM=y
 CONFIG_SPIRAM_MODE_OCT=y
 CONFIG_SPIRAM_SPEED_80M=y
 CONFIG_SPIRAM_FETCH_INSTRUCTIONS=y
 CONFIG_SPIRAM_RODATA=y
 
-# ── Cache ────────────────────────────────────────────────────────────
+# -- Cache --
 CONFIG_ESP32S3_DATA_CACHE_LINE_64B=y
 
-# ── FreeRTOS ─────────────────────────────────────────────────────────
+# -- FreeRTOS --
 CONFIG_FREERTOS_HZ=1000
 CONFIG_ESP_MAIN_TASK_STACK_SIZE=10240
 CONFIG_FREERTOS_VTASKLIST_INCLUDE_COREID=y
 CONFIG_FREERTOS_GENERATE_RUN_TIME_STATS=y
 
-# ── LVGL 9 Core ─────────────────────────────────────────────────────
+# -- LVGL 9 Core --
 CONFIG_LV_USE_CLIB_MALLOC=y
 CONFIG_LV_USE_CLIB_STRING=y
 CONFIG_LV_USE_CLIB_SPRINTF=y
@@ -47,14 +47,14 @@ CONFIG_LV_OS_FREERTOS=y
 CONFIG_LV_DRAW_SW_DRAW_UNIT_CNT=2
 CONFIG_LV_ATTRIBUTE_FAST_MEM_USE_IRAM=y
 
-# ── LVGL 9 Color ────────────────────────────────────────────────────
+# -- LVGL 9 Color --
 # RGB565 native for SH8601 AMOLED (16-bit QSPI interface)
 CONFIG_LV_COLOR_DEPTH_16=y
 # Note: LV_COLOR_16_SWAP is NOT needed for SH8601 in QSPI mode.
 # The QSPI interface handles byte ordering natively (confirmed by
 # direct panel draw_bitmap test: 0xF800 = red without swap).
 
-# ── LVGL 9 Fonts (Montserrat) ───────────────────────────────────────
+# -- LVGL 9 Fonts (Montserrat) --
 CONFIG_LV_FONT_MONTSERRAT_12=y
 CONFIG_LV_FONT_MONTSERRAT_16=y
 CONFIG_LV_FONT_MONTSERRAT_20=y
@@ -66,9 +66,9 @@ CONFIG_LV_FONT_MONTSERRAT_40=y
 CONFIG_LV_FONT_MONTSERRAT_48=y
 CONFIG_LV_USE_FONT_COMPRESSED=y
 
-# ── LVGL 9 Misc ─────────────────────────────────────────────────────
+# -- LVGL 9 Misc --
 CONFIG_LV_TXT_BREAK_CHARS=" ,.;:-_"
 CONFIG_LV_USE_SNAPSHOT=y
 
-# ── WiFi ─────────────────────────────────────────────────────────────
+# -- WiFi --
 CONFIG_ESP_WIFI_ENABLED=y

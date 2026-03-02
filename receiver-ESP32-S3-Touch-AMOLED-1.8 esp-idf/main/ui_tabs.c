@@ -12,12 +12,16 @@
 
 #include "esp_log.h"
 
+/* Custom large font for speed display (generated via lv_font_conv) */
+LV_FONT_DECLARE(font_speed_144);
+
 static const char *TAG = "ui_tabs";
 
 /* ── Display geometry ───────────────────────────────────────────────── */
 #define DISP_W       368
 #define DISP_H       448
 #define TAB_BAR_PCT  0    /* tab bar hidden -- BOOT button + swipe for nav */
+#define TAB_COUNT    6
 
 /* ── Theme colours (from YAML) ──────────────────────────────────────── */
 #define COL_BG          0x000000   /* background black */
@@ -33,6 +37,7 @@ static const char *TAG = "ui_tabs";
 #define COL_SLIDER_IND 0x6E0211   /* slider indicator fill */
 #define COL_BORDER     0xE10522   /* border accent */
 #define COL_KNOB_RING  0x4A0A0A   /* switch knob border dark red */
+#define COL_SW_OFF     0x770313   /* switch track when unchecked (dark red) */
 
 /* ── Timeout step table (shared by dim + sleep sliders) ─────────────── */
 static const int timeout_steps[] = {5, 10, 15, 30, 60, 120, 180, 240, 300};
@@ -175,6 +180,7 @@ static void build_tab_home(lv_obj_t *tab) {
     lv_obj_set_style_bg_color(tab, lv_color_hex(COL_BG), 0);
     lv_obj_set_scrollbar_mode(tab, LV_SCROLLBAR_MODE_OFF);
     lv_obj_clear_flag(tab, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_style_pad_all(tab, 0, 0);
 
     /* Time -- 48pt red, full width, centered */
     lbl_time = lv_label_create(tab);
@@ -250,6 +256,7 @@ static void build_tab_gps(lv_obj_t *tab) {
     lv_obj_set_style_bg_color(tab, lv_color_hex(COL_BG), 0);
     lv_obj_set_scrollbar_mode(tab, LV_SCROLLBAR_MODE_OFF);
     lv_obj_clear_flag(tab, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_style_pad_all(tab, 0, 0);
 
     /* Fix status (right) */
     lbl_fix_gps = lv_label_create(tab);
@@ -336,33 +343,36 @@ static void build_tab_gps(lv_obj_t *tab) {
  * Conversion: m/s * 2.23694 = mph.
  * Vertically centered in full 448px height (tab bar removed).
  *
+ * Uses custom font_speed_144 (144px Montserrat, digits + period only).
+ * "99.9" at 144px ≈ 310px wide, fits 368px display.
+ *
  * Layout (448px height):
- *   y=174  Speed value (48pt, w=DISP_W, h=140)
- *   y=244  "mph" unit label (24pt, w=DISP_W, h=30)
+ *   Content: 144 + 10 + 30 = 184px
+ *   y_start = (448-184)/2 = 132
  */
 static void build_tab_speed(lv_obj_t *tab) {
     lv_obj_set_style_bg_color(tab, lv_color_hex(COL_BG), 0);
     lv_obj_set_scrollbar_mode(tab, LV_SCROLLBAR_MODE_OFF);
     lv_obj_clear_flag(tab, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_style_pad_all(tab, 0, 0);
 
-    /* Speed value -- large centered */
+    /* Speed value -- 144px font, centered */
     lbl_speed_val = lv_label_create(tab);
-    lv_obj_set_pos(lbl_speed_val, 0, 174);
-    lv_obj_set_size(lbl_speed_val, DISP_W, 140);
+    lv_obj_set_pos(lbl_speed_val, 0, 132);
+    lv_obj_set_size(lbl_speed_val, DISP_W, 150);
     lv_label_set_text(lbl_speed_val, "0.0");
-    lv_label_set_long_mode(lbl_speed_val, LV_LABEL_LONG_DOT);
     lv_obj_set_style_text_color(lbl_speed_val, lv_color_hex(COL_RED), 0);
     lv_obj_set_style_text_align(lbl_speed_val, LV_TEXT_ALIGN_CENTER, 0);
-    lv_obj_set_style_text_font(lbl_speed_val, &lv_font_montserrat_48, 0);
+    lv_obj_set_style_text_font(lbl_speed_val, &font_speed_144, 0);
 
     /* "mph" unit label below */
     lv_obj_t *lbl_unit = lv_label_create(tab);
-    lv_obj_set_pos(lbl_unit, 0, 244);
+    lv_obj_set_pos(lbl_unit, 0, 286);
     lv_obj_set_size(lbl_unit, DISP_W, 30);
     lv_label_set_text(lbl_unit, "mph");
     lv_obj_set_style_text_color(lbl_unit, lv_color_hex(COL_RED), 0);
     lv_obj_set_style_text_align(lbl_unit, LV_TEXT_ALIGN_CENTER, 0);
-    lv_obj_set_style_text_font(lbl_unit, &lv_font_montserrat_24, 0);
+    lv_obj_set_style_text_font(lbl_unit, &lv_font_montserrat_30, 0);
 }
 
 /**
@@ -380,33 +390,37 @@ static void build_tab_network(lv_obj_t *tab) {
     lv_obj_set_style_bg_color(tab, lv_color_hex(COL_BG), 0);
     lv_obj_set_scrollbar_mode(tab, LV_SCROLLBAR_MODE_OFF);
     lv_obj_clear_flag(tab, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_style_pad_all(tab, 0, 0);
 
-    /* Top separator */
-    create_separator(tab, 80);
+    /*
+     * Vertically centered layout (no top separator):
+     *   Content block: 40+5+60 +20+10+15+ 40+5+60 = 255px
+     *   start_y = (448-255)/2 ≈ 97
+     */
 
     /* Sender IP title */
-    create_section_title(tab, "GPS ESP32 IP", 67, 105, 230, 40,
+    create_section_title(tab, "GPS ESP32 IP", 0, 97, DISP_W, 40,
                          &lv_font_montserrat_30);
 
     /* Sender IP value */
     lbl_sender_ip = lv_label_create(tab);
-    lv_obj_set_pos(lbl_sender_ip, 0, 150);
+    lv_obj_set_pos(lbl_sender_ip, 0, 142);
     lv_obj_set_size(lbl_sender_ip, DISP_W, 60);
     lv_label_set_text(lbl_sender_ip, "0.0.0.0");
     lv_obj_set_style_text_color(lbl_sender_ip, lv_color_hex(COL_RED), 0);
     lv_obj_set_style_text_align(lbl_sender_ip, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_set_style_text_font(lbl_sender_ip, &lv_font_montserrat_48, 0);
 
-    /* Middle separator */
-    create_separator(tab, 230);
+    /* Separator */
+    create_separator(tab, 222);
 
     /* Device IP title */
-    create_section_title(tab, "This Device", 67, 255, 230, 40,
+    create_section_title(tab, "This Device", 0, 247, DISP_W, 40,
                          &lv_font_montserrat_30);
 
     /* Device IP value */
     lbl_device_ip = lv_label_create(tab);
-    lv_obj_set_pos(lbl_device_ip, 0, 300);
+    lv_obj_set_pos(lbl_device_ip, 0, 292);
     lv_obj_set_size(lbl_device_ip, DISP_W, 60);
     lv_label_set_text(lbl_device_ip, "0.0.0.0");
     lv_obj_set_style_text_color(lbl_device_ip, lv_color_hex(COL_RED), 0);
@@ -570,15 +584,15 @@ static lv_obj_t *create_styled_switch(lv_obj_t *parent, int x, int y, int w, int
     lv_obj_set_pos(sw, x, y);
     lv_obj_set_size(sw, w, h);
 
-    /* Track (unchecked) */
-    lv_obj_set_style_bg_color(sw, lv_color_hex(COL_DARK), LV_PART_MAIN);
+    /* Track (unchecked) -- black background */
+    lv_obj_set_style_bg_color(sw, lv_color_hex(COL_BG), LV_PART_MAIN);
     lv_obj_set_style_bg_opa(sw, LV_OPA_COVER, LV_PART_MAIN);
     lv_obj_set_style_border_width(sw, 1, LV_PART_MAIN);
     lv_obj_set_style_border_color(sw, lv_color_hex(COL_BORDER), LV_PART_MAIN);
 
-    /* Track (checked) */
-    lv_obj_set_style_bg_color(sw, lv_color_hex(COL_RED), LV_PART_INDICATOR);
-    lv_obj_set_style_bg_opa(sw, LV_OPA_COVER, LV_PART_INDICATOR);
+    /* Track (checked) -- dark red (must target CHECKED state to override theme) */
+    lv_obj_set_style_bg_color(sw, lv_color_hex(COL_SW_OFF), LV_PART_INDICATOR | LV_STATE_CHECKED);
+    lv_obj_set_style_bg_opa(sw, LV_OPA_COVER, LV_PART_INDICATOR | LV_STATE_CHECKED);
 
     /* Knob */
     lv_obj_set_style_bg_color(sw, lv_color_hex(COL_KNOB), LV_PART_KNOB);
@@ -606,6 +620,7 @@ static void build_tab_settings(lv_obj_t *tab) {
     lv_obj_set_style_bg_color(tab, lv_color_hex(COL_BG), 0);
     lv_obj_set_scrollbar_mode(tab, LV_SCROLLBAR_MODE_OFF);
     lv_obj_clear_flag(tab, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_style_pad_all(tab, 0, 0);
 
     /* ── Brightness ─────────────────────────────────────────────── */
     create_section_title(tab, "Brightness", 0, 5, 185, 25, &lv_font_montserrat_20);
@@ -704,6 +719,7 @@ static void build_tab_reboot(lv_obj_t *tab) {
     lv_obj_set_style_bg_color(tab, lv_color_hex(COL_BG), 0);
     lv_obj_set_scrollbar_mode(tab, LV_SCROLLBAR_MODE_OFF);
     lv_obj_clear_flag(tab, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_style_pad_all(tab, 0, 0);
 
     btn_reboot = lv_button_create(tab);
     lv_obj_set_pos(btn_reboot, 0, 184);
@@ -720,6 +736,32 @@ static void build_tab_reboot(lv_obj_t *tab) {
     lv_obj_set_style_text_color(lbl, lv_color_hex(COL_RED), 0);
     lv_obj_set_style_text_font(lbl, &lv_font_montserrat_30, 0);
     lv_obj_align(lbl, LV_ALIGN_CENTER, 0, 0);
+}
+
+/**
+ * Released callback on the tabview content -- wraps around at boundaries.
+ *
+ * LV_EVENT_GESTURE doesn't fire because the scroll container consumes swipes.
+ * Instead we use LV_EVENT_RELEASED, which fires after every finger lift,
+ * and check lv_indev_get_gesture_dir() for the swipe direction.
+ *
+ * At the time of RELEASED, the active tab hasn't animated yet, so
+ * lv_tabview_get_tab_active() still returns the tab the user was ON
+ * when they swiped -- exactly what we need for boundary detection.
+ */
+static void tabview_wrap_released_cb(lv_event_t *e) {
+    (void)e;
+    lv_indev_t *indev = lv_indev_active();
+    if (!indev) return;
+
+    lv_dir_t dir = lv_indev_get_gesture_dir(indev);
+    uint32_t current = lv_tabview_get_tab_active(tabview);
+
+    if (dir == LV_DIR_RIGHT && current == TAB_COUNT - 1) {
+        lv_tabview_set_active(tabview, 0, LV_ANIM_ON);
+    } else if (dir == LV_DIR_LEFT && current == 0) {
+        lv_tabview_set_active(tabview, TAB_COUNT - 1, LV_ANIM_ON);
+    }
 }
 
 /**
@@ -770,6 +812,10 @@ void ui_tabs_create(lv_obj_t *parent, const ui_tabs_callbacks_t *cb) {
     lv_obj_t *tab_bar = lv_tabview_get_tab_bar(tabview);
     lv_obj_add_flag(tab_bar, LV_OBJ_FLAG_HIDDEN);
 
+    /* Remove default padding from content area so tabs fill full screen */
+    lv_obj_t *tv_content = lv_tabview_get_content(tabview);
+    lv_obj_set_style_pad_all(tv_content, 0, 0);
+
     /* ── Add the 6 tabs ─────────────────────────────────────────── */
     lv_obj_t *tab_home     = lv_tabview_add_tab(tabview, "Home");
     lv_obj_t *tab_gps      = lv_tabview_add_tab(tabview, "GPS");
@@ -790,7 +836,11 @@ void ui_tabs_create(lv_obj_t *parent, const ui_tabs_callbacks_t *cb) {
     lv_obj_add_event_cb(tabview, tabview_changed_cb,
                         LV_EVENT_VALUE_CHANGED, NULL);
 
-    ESP_LOGI(TAG, "UI tabs created (%dx%d, %d tabs)", DISP_W, DISP_H, 6);
+    /* ── Wrap-around on swipe past boundary ─────────────────────── */
+    lv_obj_add_event_cb(tv_content, tabview_wrap_released_cb,
+                        LV_EVENT_RELEASED, NULL);
+
+    ESP_LOGI(TAG, "UI tabs created (%dx%d, %d tabs)", DISP_W, DISP_H, TAB_COUNT);
 }
 
 /**
@@ -895,7 +945,7 @@ void ui_tabs_led_off(void) {
 }
 
 void ui_tabs_set_active(int tab_index, bool animate) {
-    if (tabview && tab_index >= 0 && tab_index < 6) {
+    if (tabview && tab_index >= 0 && tab_index < TAB_COUNT) {
         lv_tabview_set_active(tabview, (uint32_t)tab_index,
                                   animate ? LV_ANIM_ON : LV_ANIM_OFF);
     }
@@ -907,7 +957,7 @@ int ui_tabs_get_active(void) {
 }
 
 int ui_tabs_get_tab_count(void) {
-    return 6;
+    return TAB_COUNT;
 }
 
 /**

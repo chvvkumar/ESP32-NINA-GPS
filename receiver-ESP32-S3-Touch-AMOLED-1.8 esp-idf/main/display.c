@@ -9,6 +9,7 @@
  */
 
 #include "display.h"
+#include "config.h"
 
 #include <string.h>
 
@@ -26,6 +27,8 @@
 #include "esp_err.h"
 #include "esp_log.h"
 #include "esp_heap_caps.h"
+#include "esp_sleep.h"
+#include "esp_wifi.h"
 
 #include "lvgl.h"              /* includes lv_draw_sw.h -> lv_draw_sw_rgb565_swap() */
 #include "esp_lcd_sh8601.h"
@@ -130,6 +133,18 @@ static bool            s_sleep_enabled    = true;
 static boot_button_cb_t s_boot_btn_cb = NULL;
 static int64_t          s_last_btn_press_us = 0;
 
+/* Deep sleep state (survives deep sleep in RTC slow memory) */
+RTC_DATA_ATTR static int  s_rtc_saved_tab = 0;
+
+/* Wake guard: suppresses the first touch/button after deep sleep wake
+ * to prevent the "waking" interaction from triggering LVGL actions. */
+static bool s_waking_from_deep_sleep = false;
+static esp_timer_handle_t s_wake_guard_timer = NULL;
+
+/* Dim-wake guard: suppresses touch until finger lift after waking from dim/sleep.
+ * Set when a touch occurs while dimmed/asleep, cleared on first RELEASED read. */
+static bool s_touch_suppressed = false;
+
 /* ================================================================== */
 /*  SH8601 Init Commands                                               */
 /* ================================================================== */
@@ -157,7 +172,47 @@ static void lvgl_touch_read_cb(lv_indev_t *indev, lv_indev_data_t *data);
 static void lvgl_tick_cb(void *arg);
 static void lvgl_task(void *arg);
 static void sleep_dim_timer_cb(void *arg);
-static void IRAM_ATTR boot_button_isr(void *arg);
+static void boot_button_isr(void *arg);
+
+/* ================================================================== */
+/*  Deep sleep: wake guard + entry                                     */
+/* ================================================================== */
+
+/**
+ * @brief One-shot timer callback that clears the wake guard flag.
+ * Fires 500ms after deep sleep wake to allow the touch controller
+ * to settle and the initial touch/button to be drained.
+ */
+static void wake_guard_timer_cb(void *arg)
+{
+    s_waking_from_deep_sleep = false;
+    ESP_LOGI(TAG, "Wake guard cleared -- touch/button input now active");
+}
+
+/**
+ * @brief Enter ESP32-S3 deep sleep with EXT1 wakeup on GPIO0 + GPIO21.
+ *
+ * Saves the active tab to RTC memory, stops WiFi cleanly, configures
+ * EXT1 wakeup, and calls esp_deep_sleep_start() which does NOT return.
+ */
+static void enter_deep_sleep(int current_tab)
+{
+    s_rtc_saved_tab = current_tab;
+
+    ESP_LOGI(TAG, "Entering deep sleep (tab %d saved)", current_tab);
+
+    /* Cleanly shut down WiFi + ESP-NOW before sleeping */
+    esp_wifi_stop();
+
+    /* Configure EXT1 wakeup: wake on ANY of the masked GPIOs going LOW.
+     * GPIO0  (BOOT button) and GPIO21 (FT5x06 touch INT) are both
+     * active-low RTC GPIOs on the ESP32-S3. */
+    const uint64_t wakeup_pin_mask = (1ULL << GPIO_NUM_0) | (1ULL << GPIO_NUM_21);
+    esp_sleep_enable_ext1_wakeup(wakeup_pin_mask, ESP_EXT1_WAKEUP_ANY_LOW);
+
+    /* Does NOT return -- chip fully resets on wake */
+    esp_deep_sleep_start();
+}
 
 /* ================================================================== */
 /*  Internal: Brightness hardware                                      */
@@ -389,28 +444,53 @@ static bool lvgl_flush_ready_cb(esp_lcd_panel_io_handle_t panel_io,
  */
 static void lvgl_touch_read_cb(lv_indev_t *indev, lv_indev_data_t *data)
 {
+    /* Suppress touch during the wake guard period after deep sleep.
+     * This prevents the "waking touch" from triggering LVGL actions. */
+    if (s_waking_from_deep_sleep) {
+        data->state = LV_INDEV_STATE_RELEASED;
+        return;
+    }
+
     esp_lcd_touch_handle_t tp = lv_indev_get_user_data(indev);
     if (!tp) {
         data->state = LV_INDEV_STATE_RELEASED;
         return;
     }
 
-    uint16_t x, y;
+    esp_lcd_touch_point_data_t point;
     uint8_t count = 0;
 
     esp_lcd_touch_read_data(tp);
-    bool pressed = esp_lcd_touch_get_coordinates(tp, &x, &y, NULL, &count, 1);
+    esp_lcd_touch_get_data(tp, &point, &count, 1);
 
-    if (pressed && count > 0) {
-        data->point.x = x;
-        data->point.y = y;
+    if (count > 0) {
+        /* If the display is dimmed or asleep, wake it but suppress this
+         * touch (and all subsequent touches until finger lift) so the
+         * "waking tap" doesn't activate sliders/switches/buttons. */
+        if (s_display_state != DISP_STATE_AWAKE) {
+            display_reset_activity();
+            s_touch_suppressed = true;
+            data->state = LV_INDEV_STATE_RELEASED;
+            return;
+        }
+
+        /* Still suppressing until the user lifts their finger */
+        if (s_touch_suppressed) {
+            data->state = LV_INDEV_STATE_RELEASED;
+            return;
+        }
+
+        data->point.x = point.x;
+        data->point.y = point.y;
         data->state = LV_INDEV_STATE_PRESSED;
 
         /* Any touch is user activity */
         display_reset_activity();
 
-        ESP_LOGD(TAG, "Touch: (%d, %d)", x, y);
+        ESP_LOGD(TAG, "Touch: (%d, %d)", point.x, point.y);
     } else {
+        /* Finger lifted -- clear suppression */
+        s_touch_suppressed = false;
         data->state = LV_INDEV_STATE_RELEASED;
     }
 }
@@ -484,8 +564,14 @@ static void sleep_dim_timer_cb(void *arg)
         if (elapsed_s >= effective_sleep_s) {
             brightness_set_pct(0);
             s_display_state = DISP_STATE_ASLEEP;
-            ESP_LOGI(TAG, "Display sleep after %lu s inactivity", (unsigned long)effective_sleep_s);
-            return;
+            ESP_LOGI(TAG, "Sleep timeout after %lu s -- entering deep sleep",
+                     (unsigned long)effective_sleep_s);
+
+            /* Get current tab from NVS cache (safe from timer context;
+             * ui_tabs_get_active() would need the LVGL mutex). */
+            int current_tab = config_get_last_page();
+            enter_deep_sleep(current_tab);
+            /* Does NOT return */
         }
     }
 
@@ -494,8 +580,11 @@ static void sleep_dim_timer_cb(void *arg)
         if (elapsed_s >= s_dim_timeout_s) {
             brightness_set_pct(DIM_BRIGHTNESS_PCT);
             s_display_state = DISP_STATE_DIMMED;
-            ESP_LOGI(TAG, "Display dim to %d%% after %u s inactivity",
-                     DIM_BRIGHTNESS_PCT, s_dim_timeout_s);
+            ESP_LOGI(TAG, "Display dim to %d%% after %u s inactivity"
+                     " [sleep_en=%d sleep_timeout=%u effective_sleep=%lu]",
+                     DIM_BRIGHTNESS_PCT, s_dim_timeout_s,
+                     s_sleep_enabled, s_sleep_timeout_s,
+                     (unsigned long)(s_dim_timeout_s + s_sleep_timeout_s));
         }
     }
 }
@@ -544,8 +633,11 @@ static void boot_button_task(void *arg)
         /* Always reset activity timer */
         display_reset_activity();
 
-        if (s_display_state == DISP_STATE_ASLEEP ||
-            s_display_state == DISP_STATE_DIMMED) {
+        if (s_waking_from_deep_sleep) {
+            /* First button press after deep sleep wake -- consume it */
+            ESP_LOGI(TAG, "BOOT button: consumed during wake guard");
+        } else if (s_display_state == DISP_STATE_ASLEEP ||
+                   s_display_state == DISP_STATE_DIMMED) {
             /* display_reset_activity() already woke us.
              * Don't fire the "next tab" action -- just wake. */
             ESP_LOGI(TAG, "BOOT button: woke display");
@@ -716,7 +808,7 @@ static void init_boot_button(void)
     ESP_ERROR_CHECK(gpio_config(&io_conf));
 
     /* Create the button processing task BEFORE installing ISR */
-    xTaskCreate(boot_button_task, "btn_task", 2048, NULL, 5, &s_button_task_handle);
+    xTaskCreate(boot_button_task, "btn_task", 4096, NULL, 5, &s_button_task_handle);
 
     ESP_ERROR_CHECK(gpio_install_isr_service(0));
     ESP_ERROR_CHECK(gpio_isr_handler_add(PIN_BOOT_BUTTON, boot_button_isr, NULL));
@@ -894,4 +986,39 @@ void display_init(void)
     init_boot_button();
 
     ESP_LOGI(TAG, "=== Display init complete ===");
+}
+
+/* ================================================================== */
+/*  Public: Deep sleep                                                 */
+/* ================================================================== */
+
+esp_sleep_wakeup_cause_t display_check_wake_cause(void)
+{
+    esp_sleep_wakeup_cause_t cause = esp_sleep_get_wakeup_cause();
+
+    if (cause != ESP_SLEEP_WAKEUP_UNDEFINED) {
+        ESP_LOGI(TAG, "Woke from deep sleep: cause=%d, saved_tab=%d",
+                 (int)cause, s_rtc_saved_tab);
+
+        /* Set the wake guard to suppress the first touch/button */
+        s_waking_from_deep_sleep = true;
+
+        /* One-shot 500ms timer to clear the guard. Gives FT5x06 time
+         * to settle and the user time to lift their finger. */
+        const esp_timer_create_args_t guard_args = {
+            .callback = wake_guard_timer_cb,
+            .name = "wake_guard",
+        };
+        ESP_ERROR_CHECK(esp_timer_create(&guard_args, &s_wake_guard_timer));
+        ESP_ERROR_CHECK(esp_timer_start_once(s_wake_guard_timer, 500 * 1000));
+    } else {
+        ESP_LOGI(TAG, "Normal boot (not deep sleep wake)");
+    }
+
+    return cause;
+}
+
+int display_get_saved_tab(void)
+{
+    return s_rtc_saved_tab;
 }

@@ -1,5 +1,5 @@
 idf_component_register(
-    SRCS "main.c"
+    SRCS "font_speed_144.c" "main.c"
          "wifi.c"
          "espnow.c"
          "display.c"

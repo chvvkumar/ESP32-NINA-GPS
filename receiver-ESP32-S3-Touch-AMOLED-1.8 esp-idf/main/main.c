@@ -10,6 +10,7 @@
 #include "esp_log.h"
 #include "esp_err.h"
 #include "esp_timer.h"
+#include "esp_sleep.h"
 
 #include "types.h"
 #include "display.h"
@@ -159,8 +160,18 @@ void app_main(void)
             config_get_sleep_enabled()
         );
 
-        /* Restore last active tab */
-        ui_tabs_set_active(config_get_last_page(), false);
+        /* Restore active tab: from RTC memory on deep sleep wake,
+         * or from NVS on normal boot */
+        esp_sleep_wakeup_cause_t wake_cause = display_check_wake_cause();
+        int restore_tab;
+        if (wake_cause != ESP_SLEEP_WAKEUP_UNDEFINED) {
+            restore_tab = display_get_saved_tab();
+            ESP_LOGI(TAG, "Deep sleep wake: restoring tab %d from RTC", restore_tab);
+        } else {
+            restore_tab = config_get_last_page();
+            ESP_LOGI(TAG, "Normal boot: restoring tab %d from NVS", restore_tab);
+        }
+        ui_tabs_set_active(restore_tab, false);
 
         /* Create 1-second LVGL timer for GPS-to-UI data pipeline */
         lv_timer_create(gps_ui_timer_cb, 1000, NULL);

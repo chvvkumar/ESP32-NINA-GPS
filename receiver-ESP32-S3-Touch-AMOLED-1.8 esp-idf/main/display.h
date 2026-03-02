@@ -19,6 +19,7 @@ extern "C" {
 #include <stdbool.h>
 #include <stdint.h>
 #include "lvgl.h"
+#include "esp_sleep.h"
 
 /* ------------------------------------------------------------------ */
 /*  Display constants                                                  */
@@ -157,6 +158,27 @@ typedef void (*boot_button_cb_t)(void);
  * @param cb  Function to call, or NULL to disable.
  */
 void display_set_boot_button_cb(boot_button_cb_t cb);
+
+/* ------------------------------------------------------------------ */
+/*  Deep sleep                                                         */
+/* ------------------------------------------------------------------ */
+
+/**
+ * @brief Check if this boot was a wake from deep sleep.
+ *
+ * Call once from app_main() after display_init() and UI creation.
+ * If a deep sleep wake is detected, sets an internal guard that
+ * suppresses the first touch/button for 500ms.
+ *
+ * @return The wakeup cause. ESP_SLEEP_WAKEUP_UNDEFINED = normal boot.
+ */
+esp_sleep_wakeup_cause_t display_check_wake_cause(void);
+
+/**
+ * @brief Get the tab index saved to RTC memory before deep sleep.
+ * Only meaningful when display_check_wake_cause() != ESP_SLEEP_WAKEUP_UNDEFINED.
+ */
+int display_get_saved_tab(void);
 
 #ifdef __cplusplus
 }
